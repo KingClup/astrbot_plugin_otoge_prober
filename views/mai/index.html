@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<script src="/api/plugin/page/bridge-sdk.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>舞萌查分管理</title>
+<style>
+  :root {
+    --bg: #f6f3fb; --card: #ffffff; --ink: #2b2140; --sub: #7a6d93; --line: #e6def3;
+    --accent: #2878eb; --accent2: #4f9bff; --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --chip: #f1ebfd;
+  }
+  html[data-theme="dark"] {
+    --bg: #17141f; --card: #221d2e; --ink: #ece6f7; --sub: #a99cc2; --line: #362d48;
+    --accent: #5a9bff; --accent2: #7fb3ff; --chip: #2e2640;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 18px; background: var(--bg); color: var(--ink);
+         font: 14px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  h1 small { font-size: 13px; color: var(--sub); font-weight: normal; margin-left: 8px; }
+  .lead { color: var(--sub); margin: 0 0 16px; }
+  nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; position: sticky; top: 0; z-index: 5;
+        background: var(--bg); padding: 6px 0; }
+  nav a { padding: 6px 12px; border-radius: 999px; background: var(--chip); color: var(--ink); text-decoration: none; font-size: 13px; }
+  nav a:hover { background: var(--accent); color: #fff; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 16px; }
+  section h2 { margin: 0 0 4px; font-size: 17px; }
+  .desc { color: var(--sub); font-size: 13px; margin: 0 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .stat { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .stat .k { color: var(--sub); font-size: 12px; }
+  .stat .v { font-size: 20px; font-weight: 700; }
+  .stat .s { color: var(--sub); font-size: 12px; word-break: break-all; }
+  label { display: inline-flex; align-items: center; gap: 6px; margin: 4px 12px 4px 0; }
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font: inherit; }
+  input[type=text], input[type=password] { min-width: 220px; }
+  textarea { width: 100%; min-height: 70px; }
+  button { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; border: 0; border-radius: 8px;
+           padding: 7px 14px; font: inherit; cursor: pointer; margin: 4px 6px 4px 0; }
+  button.ghost { background: var(--chip); color: var(--ink); }
+  button.danger { background: var(--bad); }
+  button:disabled { opacity: .5; cursor: wait; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap;
+        word-break: break-word; max-height: 420px; overflow: auto; font: 12.5px/1.5 Consolas, "Cascadia Mono", monospace; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 7px 6px; text-align: left; vertical-align: top; }
+  th { color: var(--sub); font-weight: 600; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--chip); font-size: 12px; margin-right: 4px; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 6px 0; }
+  .icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .icon { border: 1px dashed var(--line); border-radius: 10px; padding: 8px; font-size: 12px; }
+  .icon b { display: block; }
+  #preview img { max-width: 100%; border-radius: 10px; border: 1px solid var(--line); margin-top: 8px; }
+  .toast { position: fixed; right: 18px; top: 18px; background: var(--ink); color: var(--bg); padding: 9px 14px;
+           border-radius: 10px; opacity: 0; transition: opacity .2s; max-width: 70%; z-index: 9; }
+  .toast.show { opacity: .95; }
+  .hint { color: var(--sub); font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>舞萌 DX 查分 <small id="ver"></small></h1>
+<p class="lead">maimai DX NET 国际服 + 日服 · 曲库 Data from DXRating</p>
+<nav>
+  <a href="#s-usage">使用方法</a><a href="#s-overview">概览</a><a href="#s-bind">绑定和测试</a>
+  <a href="#s-users">已绑定用户</a><a href="#s-cmd">指令测试</a><a href="#s-catalog">曲库和版本</a>
+  <a href="#s-theme">B50 主题</a><a href="#s-settings">设置</a><a href="#s-credits">致谢</a>
+</nav>
+
+<section id="s-usage">
+  <h2>使用方法</h2>
+  <p class="desc">群友在 QQ 里用的指令。绑定只能私聊；非管理员绑定前会先收到声明，回复「同意」才继续。所有指令也能写成 <code>/maimai</code> 或 <code>/舞萌</code>。</p>
+  <pre id="help">加载中…</pre>
+</section>
+
+<section id="s-overview">
+  <h2>概览</h2>
+  <p class="desc">曲库来源、两区的当前版本、NET 是否在限流冷却。出现「冷却中」说明 NET 报了 200001（请求太频繁），期间对该区的查询会直接提示稍后再试。</p>
+  <div class="grid" id="overview"></div>
+</section>
+
+<section id="s-bind">
+  <h2>绑定和测试</h2>
+  <p class="desc">先在这里测试一组凭据能不能登录（结果只显示在本页，不会发到 QQ）；勾选「保存」并填 QQ 号，就等于替这个 QQ 绑定好了（视为已同意声明）。国际服推荐 clal；SEGA ID + 密码可以在 clal 过期时自动续登。日服只能用 SEGA ID。</p>
+  <div class="row">
+    <label>区服 <select id="b-region"><option value="intl">国际服</option><option value="jp">日服</option></select></label>
+    <label>方式 <select id="b-method"><option value="clal">clal</option><option value="sega">SEGA ID + 密码</option></select></label>
+  </div>
+  <div class="row" id="b-clal-row"><label>clal <input type="password" id="b-clal" autocomplete="off" placeholder="64 位，lng-tgk-aime-gw.am-all.net 的 Cookie"></label></div>
+  <div class="row" id="b-sega-row" style="display:none">
+    <label>SEGA ID <input type="text" id="b-sega" autocomplete="off"></label>
+    <label>密码 <input type="password" id="b-pw" autocomplete="new-password"></label>
+    <label>Aime 卡序号 <input type="number" id="b-aime" value="0" min="0" max="9" style="width:60px"></label>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" id="b-save"> 测试成功后保存为这个 QQ 的绑定：</label>
+    <input type="text" id="b-uid" placeholder="QQ 号" style="min-width:140px">
+  </div>
+  <button id="b-go">测试登录</button>
+  <pre id="b-out" class="hint">（凭据只发给本机的 AstrBot，不会显示在日志里）</pre>
+</section>
+
+<section id="s-users">
+  <h2>已绑定用户</h2>
+  <p class="desc">QQ 号中间几位隐藏。「同步」会立刻抓一遍 NET（6～7 个请求）；「预览 B50」用这个用户上次同步的缓存出图，不访问 NET。</p>
+  <div id="users">加载中…</div>
+  <pre id="u-out" style="display:none"></pre>
+</section>
+
+<section id="s-cmd">
+  <h2>指令测试</h2>
+  <p class="desc">直接跑不需要登录的指令，看回复长什么样：查歌 / 定数 / 随歌 / 分数线 / 曲库 / 帮助。</p>
+  <div class="row"><input type="text" id="c-line" value="/mai 查歌 救护车" style="min-width:320px"><button id="c-go">运行</button></div>
+  <div class="row hint">例：<a href="#" data-cmd="/mai 查歌 救护车">查歌 救护车</a> · <a href="#" data-cmd="/mai 定数 14.9">定数 14.9</a> · <a href="#" data-cmd="/mai 定数表 14+">定数表 14+</a> · <a href="#" data-cmd="/mai 分数线 14.4 320">分数线 14.4 320</a> · <a href="#" data-cmd="/mai 随歌 紫 14+">随歌 紫 14+</a> · <a href="#" data-cmd="/mai 曲库">曲库</a></div>
+  <pre id="c-out"></pre>
+  <div id="c-img"></div>
+</section>
+
+<section id="s-catalog">
+  <h2>曲库和版本</h2>
+  <p class="desc">曲库每天定时从 DXRating 刷新（启动时也刷新一次）。「当前版本」默认自动判断：取该区可玩、且收录 ≥10 首的最新版本。从 CiRCLE 起，新曲 B15 = 当前版本 + 上一个版本。版本更新后自动判断没跟上的话，可以在这里手动指定。</p>
+  <div id="versions"></div>
+  <button id="cat-refresh" class="ghost">立即刷新曲库</button>
+  <pre id="cat-out" style="display:none"></pre>
+</section>
+
+<section id="s-theme">
+  <h2>B50 主题</h2>
+  <p class="desc">素材放在本机 <code>plugin_data/astrbot_plugin_otoge_prober/mai/themes/</code>，不随插件分发（游戏素材版权属于 SEGA，请自己准备）。背景和 logo 按版本放（default 对所有版本生效）；图标会替换自绘的评级 / FC / FS 徽章。曲绘优先用本机的 <code>jackets_hdd/</code>（如果有），没有的再从 DXRating 下载。上传或删除后会自动刷新预览。<br><b>批量上传图标 / 版本 logo（有命名规则和缺失清单）请用总览页的「素材」板块。</b></p>
+  <div class="row">
+    <label>版本 <select id="t-version"></select></label>
+    <label>背景 <input type="file" id="t-bg" accept="image/png,image/jpeg"></label>
+    <label>logo <input type="file" id="t-logo" accept="image/png,image/jpeg"></label>
+    <label>素材包 zip <input type="file" id="t-pack" accept=".zip,application/zip"></label>
+  </div>
+  <div class="row hint" id="t-jackets"></div>
+  <details><summary>图标（<span id="t-icon-count"></span>）</summary><div class="icons" id="t-icons"></div></details>
+  <details><summary>已上传的文件</summary><div id="t-files"></div></details>
+  <div class="row" style="margin-top:10px">
+    <label>预览数据 <select id="p-src"><option value="">演示数据</option></select></label>
+    <label>区服 <select id="p-region"><option value="intl">国际服</option><option value="jp">日服</option></select></label>
+    <button id="p-go">预览 B50</button><span class="hint" id="p-info"></span>
+  </div>
+  <div id="preview"></div>
+</section>
+
+<section id="s-settings">
+  <h2>设置</h2>
+  <p class="desc">在这里改的值会立即生效并保存（优先于插件配置页里的同名项）。</p>
+  <div class="row">
+    <label><input type="checkbox" id="st-consent"> 非管理员绑定前先发声明</label>
+    <label><input type="checkbox" id="st-image"> 发图片（B50 / 查歌 / 定数，关掉发文字）</label>
+    <label>图上署名 <input type="text" id="st-bot" maxlength="32" style="width:120px"></label>
+    <label>成绩缓存 <input type="number" id="st-cache" min="0" max="1440" style="width:80px"> 分钟</label>
+    <button id="st-save" class="ghost">保存设置</button>
+  </div>
+</section>
+
+<section id="s-credits">
+  <h2>致谢</h2>
+  <p class="desc">曲库 / 定数 / 别名：<b>Data from DXRating (dxrating.net)</b>。登录流程和页面结构参考了 shedaniel/tomomai（AGPL-3.0）、myjian/mai-tools（GPL-3.0）、gekichumai/dxrating（MIT）、j1nxie/kt-maimaidx-site-importer、GRA0007/deluxe-bot，本插件全部用 Python 重写，没有复制它们的代码。曲名、曲绘、游戏素材版权归 SEGA 及相关权利人。</p>
+</section>
+
+<div class="toast" id="toast"></div>
+<script>
+window.addEventListener("error", (e) => { const h = document.getElementById("help"); if (h) h.textContent = "页面出错：" + (e.message || e); });
+window.addEventListener("unhandledrejection", (e) => { const h = document.getElementById("help"); if (h && h.textContent.startsWith("加载中")) h.textContent = "加载失败：" + ((e.reason && e.reason.message) || e.reason); });
+(async () => {
+  for (let i = 0; i < 100 && !window.AstrBotPluginView; i++) await new Promise((r) => setTimeout(r, 50));
+  const B = window.AstrBotPluginView;
+  if (!B) { document.getElementById("help").textContent = "加载失败：没有找到 AstrBot 插件页接口（请在 AstrBot WebUI 的插件页里打开）"; return; }
+  const $ = (id) => document.getElementById(id);
+  const toast = (msg, bad) => { const t = $("toast"); t.textContent = msg; t.style.background = bad ? "#dc2626" : "";
+    t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3200); };
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const when = (ts) => ts ? new Date(ts * 1000).toLocaleString() : "—";
+  async function call(kind, ep, body, btn) {
+    if (btn) btn.disabled = true;
+    try { return kind === "get" ? await B.apiGet("mai/" + ep, body || {}) : await B.apiPost("mai/" + ep, body || {}); }
+    catch (e) { toast(e.message || String(e), true); throw e; }
+    finally { if (btn) btn.disabled = false; }
+  }
+  await B.ready();
+  let S = null;
+
+  async function load() {
+    try { S = await call("get", "status"); }
+    catch (e) { $("help").textContent = "读取状态失败：" + (e.message || e); throw e; }
+    $("ver").textContent = "v" + S.version;
+    $("help").textContent = S.help;
+    const c = S.catalog, locks = Object.entries(S.locks || {});
+    $("overview").innerHTML = `
+      <div class="stat"><div class="k">曲库</div><div class="v">${c.songs} 首</div>
+        <div class="s">${c.charts} 张谱面 · 来源 ${esc(c.source)}<br>数据日期 ${esc((c.updated_at||"").slice(0,10))}
+        ${c.last_error ? `<br><span class="bad">上次刷新失败：${esc(c.last_error.slice(0,160))}</span>` : ""}</div></div>
+      ${Object.entries(S.regions).map(([r, v]) => `
+      <div class="stat"><div class="k">${esc(v.name)} 当前版本</div><div class="v">${esc(v.current)}</div>
+        <div class="s">新曲 = ${v.new_versions.map(esc).join(" + ")}${v.override !== "auto" ? ` · <span class="warn">手动指定</span>` : " · 自动"}</div></div>`).join("")}
+      <div class="stat"><div class="k">NET 限流</div><div class="v ${locks.length ? "bad" : "ok"}">${locks.length ? "冷却中" : "正常"}</div>
+        <div class="s">${locks.map(([h, s]) => `${esc(h)} 还剩 ${s}s`).join("<br>") || "没有触发 200001"}</div></div>
+      <div class="stat"><div class="k">已绑定用户</div><div class="v">${S.users.length}</div>
+        <div class="s">${S.users.filter(u => u.public).length} 人允许他人查询</div></div>`;
+    $("versions").innerHTML = Object.entries(S.regions).map(([r, v]) => `
+      <div class="row"><b style="width:70px">${esc(v.name)}</b>
+        <select data-region="${r}" class="ver-sel"><option value="auto">自动（${esc(v.detected)}）</option>
+        ${S.versions.slice().reverse().map(x => `<option ${v.override === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
+        <span class="hint">新曲：${v.new_versions.map(esc).join(" + ")}</span></div>`).join("");
+    document.querySelectorAll(".ver-sel").forEach(sel => sel.onchange = async () => {
+      const r = await call("post", "catalog/version", {region: sel.dataset.region, version: sel.value});
+      toast(`已设为 ${r.current}，新曲 = ${r.new_versions.join(" + ")}`); load();
+    });
+    renderUsers();
+    $("st-consent").checked = S.settings.require_consent;
+    $("st-image").checked = S.settings.b50_image;
+    $("st-cache").value = S.settings.cache_minutes;
+    $("st-bot").value = S.settings.bot_name || "yume";
+    const psrc = $("p-src"), keep = psrc.value;
+    psrc.innerHTML = `<option value="">演示数据</option>` + S.users.map(u => `<option value="${esc(u.uid)}">${esc(u.uid_masked)}</option>`).join("");
+    psrc.value = keep;
+  }
+
+  function renderUsers() {
+    if (!S.users.length) { $("users").innerHTML = `<p class="hint">还没有人绑定。</p>`; return; }
+    const rows = [];
+    for (const u of S.users) for (const [r, v] of Object.entries(u.regions)) rows.push(`
+      <tr><td>${esc(u.uid_masked)}${u.default === r ? ' <span class="pill">默认</span>' : ""}${u.public ? ' <span class="pill">公开</span>' : ""}</td>
+      <td>${r === "intl" ? "国际服" : "日服"}<br><span class="hint">${esc(v.method)}</span></td>
+      <td>${esc(v.name || "—")}<br><span class="hint">Rating ${v.rating ?? "—"}</span></td>
+      <td>${when(v.bound_at)}<br><span class="hint">同步 ${when(v.synced_at)}</span></td>
+      <td><button class="ghost" data-act="sync" data-uid="${esc(u.uid)}" data-r="${r}">同步</button>
+          <button class="ghost" data-act="prev" data-uid="${esc(u.uid)}" data-r="${r}">预览 B50</button>
+          <button class="danger" data-act="unbind" data-uid="${esc(u.uid)}" data-r="${r}">解绑</button></td></tr>`);
+    $("users").innerHTML = `<table><tr><th>QQ</th><th>区服</th><th>NET 名字</th><th>绑定 / 同步</th><th></th></tr>${rows.join("")}</table>`;
+    $("users").querySelectorAll("button").forEach(b => b.onclick = async () => {
+      const {act, uid, r} = b.dataset;
+      if (act === "sync") {
+        const res = await call("post", "user/sync", {uid, region: r}, b);
+        $("u-out").style.display = "block";
+        $("u-out").textContent = res.ok ? `同步完成：${res.scores} 条成绩，NET ${res.net_rating}，计算值 ${res.calc}\n\n${res.text}` : res.error;
+        load();
+      } else if (act === "prev") {
+        $("p-src").value = uid; $("p-region").value = r; preview(); location.hash = "#s-theme";
+      } else if (act === "unbind") {
+        if (!confirm("确定删除这个用户在该区服的凭据和成绩缓存？")) return;
+        await call("post", "user/unbind", {uid, region: r}, b); toast("已解绑"); load();
+      }
+    });
+  }
+
+  // binding test
+  $("b-method").onchange = () => {
+    const sega = $("b-method").value === "sega";
+    $("b-clal-row").style.display = sega ? "none" : ""; $("b-sega-row").style.display = sega ? "" : "none";
+  };
+  $("b-region").onchange = () => { if ($("b-region").value === "jp") { $("b-method").value = "sega"; $("b-method").onchange(); } };
+  $("b-go").onclick = async () => {
+    const sega = $("b-method").value === "sega";
+    const body = {region: $("b-region").value, save: $("b-save").checked, uid: $("b-uid").value.trim()};
+    if (sega) { body.sega_id = $("b-sega").value.trim(); body.password = $("b-pw").value; body.aime_idx = $("b-aime").value; }
+    else body.clal = $("b-clal").value.trim();
+    $("b-out").textContent = "登录中…（NET 慢的时候要十几秒）";
+    const r = await call("post", "bind/test", body, $("b-go"));
+    $("b-pw").value = "";
+    if (!r.ok) { $("b-out").textContent = "✗ " + r.error; return; }
+    const p = r.profile;
+    $("b-out").textContent = `✓ 登录成功：${p.name}  Rating ${p.rating}\n称号：${p.title || "—"}\n本版本 ${p.play_count_version ?? "—"} 次 / 累计 ${p.play_count_total ?? "—"} 次` +
+      (r.saved ? `\n\n已保存为 QQ ${body.uid} 的${body.region === "jp" ? "日服" : "国际服"}绑定` : "");
+    if (r.saved) { $("b-clal").value = ""; load(); }
+  };
+
+  // command test
+  const runCmd = async () => {
+    const r = await call("post", "command/test", {line: $("c-line").value}, $("c-go"));
+    $("c-out").textContent = r.text || (r.image ? "（图片回复，见下方）" : "");
+    $("c-img").innerHTML = r.image ? `<img src="${r.image}" alt="reply" style="max-width:100%;border-radius:12px">` : "";
+  };
+  $("c-go").onclick = runCmd;
+  $("c-line").onkeydown = (e) => { if (e.key === "Enter") runCmd(); };
+  document.querySelectorAll("[data-cmd]").forEach(a => a.onclick = (e) => { e.preventDefault(); $("c-line").value = a.dataset.cmd; runCmd(); });
+
+  // catalog
+  $("cat-refresh").onclick = async () => {
+    const r = await call("post", "catalog/refresh", {}, $("cat-refresh"));
+    $("cat-out").style.display = "block";
+    $("cat-out").textContent = r.ok ? `已刷新：${r.stats.songs} 首 / ${r.stats.charts} 张（${r.source}）` : `刷新失败，继续用旧曲库：\n${r.error}`;
+    load();
+  };
+
+  // theme
+  async function loadTheme() {
+    const t = await call("get", "theme/list");
+    const vs = $("t-version"), keep = vs.value;
+    vs.innerHTML = `<option value="default">default（所有版本）</option>` + t.versions.slice().reverse().map(v => `<option>${esc(v)}</option>`).join("");
+    if (keep) vs.value = keep;
+    $("t-jackets").textContent = `曲绘缓存：本机素材 ${t.jackets_hdd} 张 · 从 DXRating 下载 ${t.jackets_cdn} 张`;
+    const have = Object.values(t.icons).filter(Boolean).length;
+    $("t-icon-count").textContent = `已放 ${have} / ${Object.keys(t.icons).length}，没放的用自绘徽章`;
+    $("t-icons").innerHTML = Object.entries(t.icons).map(([n, ok]) => `
+      <div class="icon"><b>${esc(n)}</b><span class="${ok ? "ok" : "hint"}">${ok ? "已上传" : "自绘"}</span><br>
+      <input type="file" accept="image/png" data-icon="${esc(n)}"></div>`).join("");
+    $("t-icons").querySelectorAll("input[type=file]").forEach(inp => inp.onchange = () => upload("icon", inp.dataset.icon, inp));
+    $("t-files").innerHTML = t.files.length ? `<table>${t.files.map(f => `<tr><td>${esc(f.path)}</td><td>${(f.size/1024).toFixed(0)} KB</td>
+      <td><button class="danger" data-del="${esc(f.path)}">删除</button></td></tr>`).join("")}</table>` : `<p class="hint">还没有上传任何素材。</p>`;
+    $("t-files").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+      if (!confirm("删除 " + b.dataset.del + "？")) return;
+      await call("post", "theme/delete", {path: b.dataset.del}, b); toast("已删除"); loadTheme(); preview();
+    });
+  }
+  async function upload(kind, target, input) {
+    const f = input.files[0]; if (!f) return;
+    try { const r = await B.upload(`mai/theme/upload/${kind}/${target}`, f); toast(`已保存 ${r.saved}（${r.size.join("×")}）`); }
+    catch (e) { toast(e.message || String(e), true); }
+    input.value = ""; loadTheme(); preview();
+  }
+  $("t-bg").onchange = () => upload("bg", $("t-version").value, $("t-bg"));
+  $("t-logo").onchange = () => upload("logo", $("t-version").value, $("t-logo"));
+  $("t-pack").onchange = () => upload("pack", "zip", $("t-pack"));
+  async function preview() {
+    $("p-info").textContent = "出图中…（第一次要下载曲绘，可能要十几秒）";
+    const r = await call("get", "b50/preview", {uid: $("p-src").value, region: $("p-region").value, scale: 0.5}, $("p-go"));
+    $("p-info").textContent = `${r.source} · 合计 ${r.total} · ${r.ms} ms`;
+    $("preview").innerHTML = `<img src="${r.image}" alt="B50 preview">`;
+  }
+  $("p-go").onclick = preview;
+
+  // settings
+  $("st-save").onclick = async () => {
+    await call("post", "settings", {require_consent: $("st-consent").checked, b50_image: $("st-image").checked,
+                                    cache_minutes: Number($("st-cache").value), bot_name: $("st-bot").value}, $("st-save"));
+    toast("已保存"); load();
+  };
+
+  await load();
+  await loadTheme();
+})();
+</script>
+</body>
+</html>

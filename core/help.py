@@ -1,0 +1,652 @@
+"""帮助：一张总览 + 按主题分开的详细页，图片版 + 文字版都从同一份数据生成。
+
+怎么分（v1.16.3 重整）：
+  总览  /查分 帮助           一屏：指令怎么读 · 五个游戏各能干什么 · 最常用的几条 · 去哪看详细
+  主题  /mai 帮助            舞萌：成绩 / 查歌定数 / 账号
+        /chu 帮助            中二：成绩 / 查歌定数 / 谱面 / 账号
+        /geki 帮助           音击：私服成绩 / 谱面
+        /sdvx 帮助、/pjsk 帮助  这两个游戏自己的页（谱面图 + 小游戏；没有查分）
+        /谱面 帮助           sdvx.in 谱面图：四个游戏一起说（中二 / 音击 / SDVX / PJSK）
+        /猜歌 帮助           群里的小游戏
+        /查分 帮助 更多       /查分 的其他指令 · @我用大白话 · 注意事项
+  全部  /查分 帮助 全         所有主题拼成一张长图（给想一次看完的人）
+
+总览只指路：大字写「发什么能看什么」，具体指令都在各自的帮助页里。
+详细页宽 1600、三列卡片，说明都是一句话。
+数据模型：Topic → Section → Row(cmd, params, desc, examples, games)。
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+from PIL import ImageDraw
+
+try:
+    from ..mai.render import fonts as F
+    from ..mai.render import kit as K
+except ImportError:  # tests
+    from mai.render import fonts as F
+    from mai.render import kit as K
+
+# ---------------------------------------------------------------- colours（统一在 core/palette.py）
+try:
+    from . import palette as PAL
+except ImportError:  # tests
+    from core import palette as PAL
+REQ, OPT = PAL.REQ, PAL.OPT
+MAI, CHU, GEKI, SDVX, PJSK = PAL.MAI, PAL.CHU, PAL.GEKI, PAL.SDVX, PAL.PJSK
+CORE, CHART, MINIGAME = PAL.CORE, PAL.CHART, PAL.MINIGAME
+TEXT = PAL.TEXT
+GAMES = PAL.GAMES
+PREFIX = {"mai": "/mai", "chu": "/chu", "geki": "/geki", "sdvx": "/sdvx", "pjsk": "/pjsk"}
+tint = PAL.tint
+
+
+# ---------------------------------------------------------------- data
+@dataclass
+class Row:
+    cmd: str                       # 指令词（带 / 的是独立指令，不带的要接在 /mai、/chu 后面）
+    params: list                   # [(名字, 必填?)]
+    desc: str                      # 一句话
+    examples: list                 # 几个例子；详细页只显示和本页游戏对得上的
+    games: tuple = ()              # 在哪些游戏里能用（单游戏页不画）
+
+
+@dataclass
+class Section:
+    title: str
+    rows: list
+    note: str = ""                 # 段标题旁的小字
+
+
+@dataclass
+class Topic:
+    key: str
+    title: str
+    colour: tuple
+    intro: str                     # 标题下一行
+    sections: list
+    tips: list = field(default_factory=list)
+    multi: bool = False            # 卡片上要不要画游戏标签
+
+
+def R(cmd, params, desc, examples, games=()):
+    if isinstance(examples, str):
+        examples = [examples]
+    return Row(cmd, [(p.strip("<>[]"), p.startswith("<")) for p in params], desc, list(examples), tuple(games))
+
+
+_BIND_ROWS = [
+    R("/网页绑定", [], "手机网页填凭据，不进聊天记录；群里私聊都能发（推荐）", ["/网页绑定"], ("mai", "chu", "geki")),
+    R("绑定 国服", ["[水鱼用户名]"], "国服走水鱼查分器，群里也能绑；不填就按 QQ 查", ["/mai 绑定 国服 xxx", "/chu 绑定 国服 xxx"], ("mai", "chu")),
+    R("绑定 落雪", ["[密钥]"], "国服推荐落雪：/网页绑定 选「落雪授权」点一下就好；不带密钥 = 按 QQ 找（只有 B50）", ["/网页绑定", "/mai 绑定 落雪"], ("mai", "chu")),
+    R("绑定 aqua · rin", ["<用户名>"], "私服：aqua 填 AquaDX 网站用户名，群里能绑；rin 只能私聊「rin 账号 密码」。舞萌中二音击共用", ["/mai 绑定 aqua <用户名>", "/chu 绑定 rin <账号> <密码>"], ("mai", "chu", "geki")),
+    R("切换 · 解绑", ["[区服]"], "换默认查的区服 / 删除绑定（私服三个游戏一起解）", ["/mai 切换 日服", "/chu 解绑 国服"], ("mai", "chu")),
+    R("公开 · 好友码", ["<开/关 · 好友码>"], "允许别人 @你 查 B50 / 看好友码资料卡", ["/mai 公开 开", "/mai 好友码 1234…"], ("mai",)),
+]
+
+_ALIAS_ROW = R("别名 · 加别名", ["<外号>", "<歌名>"], "看一首歌有哪些外号 / 教我一个新外号",
+               ["/mai 别名 潘", "/mai 加别名 救车 SUPER AMBULANCE", "/chu 加别名 a0 Aleph-0",
+                "/sdvx 加别名 受害者 VICTIM", "/geki 加别名 救车 SUPER AMBULANCE"], ("mai", "chu", "geki", "sdvx", "pjsk"))
+
+TOPICS: dict[str, Topic] = {}
+
+
+def _topic(t: Topic) -> Topic:
+    TOPICS[t.key] = t
+    return t
+
+
+_topic(Topic("mai", "舞萌 DX", MAI, "指令 = /mai + 下面的词；也认 /舞萌、/maimai。区服：国际服 / 日服 / 国服 / aqua / rin", [
+    Section("查成绩", [
+        R("b50", ["[区服]", "[文字]"], "B50 成绩图；加「文字」发文字版；@某人 查对方（对方先发「公开 开」）", ["/mai b50 日服", "/mai b50 文字"]),
+        R("理论", ["[区服]"], "这个版本每张都满分的 B50，不用绑定", ["/mai 理论 日服", "/理论ra（六个服一起）"]),
+        R("成绩", ["<歌名/外号>", "[区服]"], "这首歌各难度的成绩和单曲 rating", ["/mai 成绩 潘"]),
+        R("我 · 最近", ["[条数]"], "资料卡 / 最近游玩记录", ["/mai 我", "/mai 最近 5"]),
+        R("详情", ["[第几条]"], "某一次游玩的判定明细（国际服 / 日服）", ["/mai 详情 1"]),
+        R("刷新", [], "马上从 NET / 水鱼 / 落雪重新同步", ["/mai 刷新"]),
+        R("更新", [], "国服成绩怎么传到落雪 / 水鱼（国服是查分器里存的那份，要自己传）", ["/mai 更新"]),
+    ], "要先绑定"),
+    Section("查歌 · 定数", [
+        R("查歌", ["<歌名/外号/ID>", "[区服]"], "谱面详情图：曲绘、各服定数、物量、谱师、外号", ["/mai 查歌 救护车", "/mai 查歌 11475 日服"]),
+        R("定数", ["<14.9>", "[15.0]", "[区服]"], "这个定数（或范围）的全部谱面", ["/mai 定数 14.6 14.9"]),
+        R("定数表", ["<14+>", "[区服]"], "按定数分行的曲绘墙", ["/mai 定数表 14+"]),
+        R("分数线", ["<定数>", "[目标分]"], "各评级拿多少 rating / 拿到某分要多少达成率", ["/mai 分数线 14.2 300"]),
+        R("随歌", ["[dx/标准]", "[颜色]", "[等级]"], "随机来一首", ["/mai 随歌 dx 紫 14+"]),
+        _ALIAS_ROW,
+    ], "不用绑定"),
+    Section("账号", _BIND_ROWS),
+], tips=[
+    "区服写在指令最后，不写就查你上次查的那个服。",
+    "国服图用对应日服版本（PRiSM PLUS 等）的 logo 和背景；私服按你最后上机的客户端版本算定数。",
+    "国服成绩是落雪 / 水鱼里存的那份，要自己传上去才会变；国际服 / 日服 / 私服是查的时候直接抓的。发 /mai 更新 看怎么传。",
+    "没空格、打错也认（/舞萌b50、/mia b50）；/b50、/查歌 这种短指令按你上次玩的游戏查。",
+]))
+
+_topic(Topic("chu", "中二节奏", CHU, "指令 = /chu + 下面的词；也认 /中二、/chuni。区服：国际服 / 日服 / 国服 / aqua / rin", [
+    Section("查成绩", [
+        R("b50", ["[区服]", "[文字]"], "B30 + N20 成绩图；加「文字」发文字版；@某人 查对方", ["/chu b50 国服", "/chu b50 文字"]),
+        R("理论", ["[区服]"], "这个版本每张都满分的 B50，不用绑定", ["/chu 理论 国服"]),
+        R("成绩", ["<歌名/外号>", "[区服]"], "这首歌各难度的成绩和单曲 rating", ["/chu 成绩 a0"]),
+        R("我 · 最近", ["[条数]"], "资料卡 / 最近游玩记录", ["/chu 我", "/chu 最近"]),
+        R("刷新", [], "马上重新同步成绩", ["/chu 刷新"]),
+        R("更新", [], "国服成绩怎么传到落雪 / 水鱼（国服是查分器里存的那份，要自己传）", ["/chu 更新"]),
+    ], "要先绑定"),
+    Section("查歌 · 定数", [
+        R("查歌", ["<歌名/外号/ID>", "[区服]"], "谱面详情图：曲绘、三服定数、物量、谱师、外号（也可以写「查」）", ["/chu 查 a0", "/chu 查歌 Aleph-0 日服"]),
+        R("定数", ["<15.0>", "[15.4]", "[区服]"], "这个定数（或范围）的全部谱面", ["/chu 定数 15.4"]),
+        R("定数表", ["<15+>", "[区服]"], "按定数分行的曲绘墙", ["/chu 定数表 15+"]),
+        _ALIAS_ROW,
+    ], "不用绑定"),
+    Section("谱面（sdvx.in）", [
+        R("谱面", ["<歌名/外号>", "[紫|红|黑|we]"], "谱面图 + 三服定数 / BPM / 物量 / 谱师 + 谱面确认视频；WORLD'S END 写 we", ["/chu 谱面 a0", "/chu 谱面 系ぎて 红"]),
+    ], "也可以 /谱面 <歌名> 四个游戏一起找"),
+    Section("账号", _BIND_ROWS[:5] + [R("绑定教程", [], "各区服要填什么、去哪拿", ["/chu 绑定教程"])]),
+], tips=[
+    "区服写在指令最后，不写就查你上次查的那个服。",
+    "中二日服用 SEGA ID + 密码登录日服 NET，推荐走 /网页绑定。",
+    "私服 MuNET 2026-11 起不让第三方工具读数据，暂时用不了；RinNET、AquaDX 正常。",
+]))
+
+_topic(Topic("geki", "音击", GEKI, "指令 = /geki + 下面的词；也认 /音击、/ongeki。现在只能查私服 AquaDX", [
+    Section("查成绩", [
+        R("b50", ["[文字]", "[全]"], "新曲 10 + 旧曲 50 + P 分 50（Re:Fresh 算法）成绩图；「文字 全」列全部", ["/geki b50", "/geki b50 文字 全"]),
+        R("刷新", [], "刚打完想马上看：平时 10 分钟内重复查用的是上次的数据", ["/geki 刷新"]),
+        R("绑定 aqua", ["<用户名>"], "绑 AquaDX（跟舞萌中二共用，绑过就不用再绑）；不带参数或发 /geki 网页绑定 → 网页上填", ["/geki 绑定 aqua <用户名>", "/geki 网页绑定"]),
+    ], "私服 AquaDX"),
+    Section("谱面（sdvx.in）", [
+        R("谱面", ["<歌名>", "[红|紫|lun]"], "谱面图 + 等级 / CHAIN·BELL / 谱师 + 谱面确认视频；LUNATIC 写 lun", ["/geki 谱面 Demonia", "/geki 谱面 Hypernaid lun"]),
+        R("加别名", ["<外号>", "<歌名>"], "教我一个外号（同名歌会自动借用中二 / 舞萌的外号）", ["/geki 加别名 救车 SUPER AMBULANCE"]),
+    ]),
+], tips=[
+    "定数按你游戏客户端的版本取（1.45 bright MEMORY Act.3 / 1.5x Re:Fresh / 1.60 Act.2），图页头会标 Ver.x.xx。",
+    "rating 计算值和服务器显示值可能差 0.001～0.002（个别谱面的社区定数是估算值），图上以服务器值为主。",
+    "MuNET 不让第三方工具读数据；RinNET 的音击还没做。",
+]))
+
+_topic(Topic("sdvx", "SOUND VOLTEX", SDVX, "指令 = /sdvx + 下面的词；也认 /sv、/soundvoltex。SDVX 没有查分，只有谱面图和小游戏", [
+    Section("谱面图", [
+        R("谱面", ["<歌名>", "[nov|adv|exh|mxm]"], "谱面图 + 等级 / BPM / CHIP·HOLD·LASER / 效果·插画 + 谱面确认视频", ["/sdvx 谱面 VICTIM", "/sdvx 谱面 孤独の番人 hvn"]),
+        R("第 4 难度", ["<INF|GRV|HVN|VVD|XCD>"], "写 mxm 或直接写名字都行", ["/sdvx 谱面 VICTIM mxm", "/sdvx 谱面 孤独の番人 hvn"]),
+        R("加别名", ["<外号>", "<歌名>"], "教我一个外号", ["/sdvx 加别名 受害者 VICTIM"]),
+    ], "数据来自 sdvx.in"),
+    Section("小游戏", [
+        R("/猜曲绘 sdvx", ["[等级]"], "曲绘从 4×4 色块开始，「提示」变清楚", ["/猜曲绘 sdvx 18以上"]),
+        R("/猜谱面 sdvx", ["[等级]"], "截 1 个小节，「提示」多放一个", ["/猜谱面 sdvx 19"]),
+        R("/猜歌 sdvx", ["[等级]"], "开字母：10 首歌名打码，开字猜歌", ["/猜歌 sdvx 17以上"]),
+    ], "细节看 /猜歌 帮助"),
+], tips=[
+    "不写难度 = 这首歌最难的那张。",
+    "SDVX 没有定数，小游戏按等级筛：18以上、19、17-18。",
+    "新谱面是按 sdvx.in 的谱面数据画出来的，老谱面用它的图。",
+]))
+
+_topic(Topic("pjsk", "Project SEKAI", PJSK, "指令 = /pjsk + 下面的词；也认 /烧烤、/prsk、/世界计划。PJSK 没有查分，只有谱面图和小游戏", [
+    Section("谱面图", [
+        R("谱面", ["<歌名>", "[exp|mst|apd]"], "谱面图 + 等级 / 物量 + 谱面确认视频", ["/pjsk 谱面 テルユアワールド apd", "/烧烤 谱面 ロウワー"]),
+        R("加别名", ["<外号>", "<歌名>"], "教我一个外号", ["/pjsk 加别名 下位 ロウワー"]),
+    ], "数据来自 sdvx.in"),
+    Section("小游戏", [
+        R("/猜曲绘 pjsk", ["[等级]"], "曲绘从 4×4 色块开始，「提示」变清楚", ["/猜曲绘 pjsk 30以上"]),
+        R("/猜谱面 pjsk", ["[等级]"], "截 1 个小节，「提示」多放一个", ["/猜谱面 pjsk 32"]),
+        R("/猜歌 pjsk", ["[等级]"], "开字母：10 首歌名打码，开字猜歌", ["/猜歌 pjsk 30以上"]),
+    ], "细节看 /猜歌 帮助"),
+], tips=[
+    "不写难度 = MASTER。APPEND 写 apd。",
+    "PJSK 没有定数，小游戏按等级筛：30以上、32、28-31。",
+]))
+
+_topic(Topic("chart", "谱面图（sdvx.in）", CHART, "/谱面 帮助：sdvx.in 的谱面图和谱面确认视频，中二 / 音击 / SDVX / PJSK 一起说；舞萌在 sdvx.in 上没有", [
+    Section("查谱面", [
+        R("/谱面", ["<歌名>", "[难度]"], "不写游戏：四个游戏一起找，取最像的那首", ["/谱面 Aleph-0", "/谱面 VICTIM"], ("chu", "geki", "sdvx", "pjsk")),
+        R("chu 谱面", ["<歌名/外号>", "[紫|红|黑|we]"], "三服定数 / BPM / 物量 / 谱师 + 视频；WORLD'S END 写 we，同名几张再加字（we 狂）", ["/chu 谱面 a0", "/chu 谱面 系ぎて 红"], ("chu",)),
+        R("geki 谱面", ["<歌名>", "[红|紫|lun]"], "等级 / CHAIN·BELL / 谱师 + 视频；LUNATIC（Re:MASTER）写 lun", ["/geki 谱面 Demonia", "/geki 谱面 Hypernaid lun"], ("geki",)),
+        R("sdvx 谱面", ["<歌名>", "[nov|adv|exh|mxm]"], "等级 / BPM / CHIP·HOLD·LASER / 效果·插画；第 4 难度（INF/GRV/HVN/VVD/XCD）写 mxm 或名字", ["/sdvx 谱面 VICTIM", "/sdvx 谱面 孤独の番人 hvn"], ("sdvx",)),
+        R("pjsk 谱面", ["<歌名>", "[exp|mst|apd]"], "等级 / 物量 + 谱面确认视频；也可以写 /烧烤、/prsk", ["/pjsk 谱面 テルユアワールド apd"], ("pjsk",)),
+        _ALIAS_ROW,
+    ]),
+], tips=[
+    "不写难度 = 这首歌最难的那张（中二不算 WE、音击不算 LUNATIC；PJSK 出 MASTER）。",
+    "回：谱面图 + 定数 / 等级 / BPM / 物量 / 谱师 + 谱面确认视频 + sdvx.in 链接。图会缓存一个月，不重复去拿。",
+    "SDVX 新谱面是按 sdvx.in 的谱面数据画出来的，老谱面用它的图。",
+], multi=True))
+
+_topic(Topic("games", "小游戏（群里一起猜）", MINIGAME, "群里 @我 或带 / 开局，私聊直接发；一个群同时只开一局。游戏：舞萌 / 中二 / 音击 / sdvx / pjsk", [
+    Section("开局", [
+        R("/猜歌", ["[游戏]", "[定数]"], "开字母：10 首歌名全打码，大家开字、猜歌", ["/猜歌 舞萌 14以上", "/猜歌 pjsk 30以上"], ("mai", "chu", "geki", "sdvx", "pjsk")),
+        R("/猜曲绘", ["[游戏]", "[定数]"], "曲绘先糊成 4×4 色块，「提示」一次比一次清楚（6、8、12…32 格）", ["/猜曲绘 中二 14.7", "/猜曲绘 sdvx 18以上"], ("mai", "chu", "geki", "sdvx", "pjsk")),
+        R("/猜谱面", ["[游戏]", "[定数]"], "从 sdvx.in 谱面截 1 个小节，「提示」多放一个（最多 8 个）", ["/猜谱面 音击 13-14", "/猜谱面 sdvx 18以上"], ("chu", "geki", "sdvx", "pjsk")),
+    ]),
+    Section("局里怎么玩", [
+        R("开 a", [], "开字母：所有歌名里的这个字都亮出来；「开 abc」「开 天の」一次开好几个", ["开 a", "开 天の"], ("core",)),
+        R("直接发歌名", [], "歌名或外号都算；猜中的那首写上你的名字。「猜 xx」猜错会回「不对」", ["Aleph-0", "猜 a0"], ("core",)),
+        R("提示", [], "曲绘更清楚一档 / 谱面多一小节", ["提示"], ("core",)),
+        R("结束", [], "公布答案和排行（开字母 20 分钟、曲绘谱面 8 分钟没人说话也会自动结束）", ["结束", "不猜了"], ("core",)),
+    ]),
+], tips=[
+    "定数写法：不写 = 随机；「14以上」「13.5以下」「14.7」「14-14.5」。「15」「15+」按游戏里的等级：中二 15 = 15.0～15.4、15+ = 15.5～15.9；舞萌 14 = 14.0～14.5、14+ = 14.6～14.9。",
+    "sdvx / pjsk 没有定数，按等级：/猜曲绘 sdvx 18以上、/猜歌 pjsk 30以上。",
+    "音击、SDVX、PJSK 自己几乎没有外号，同名歌会借用中二 / 舞萌的外号。",
+], multi=True))
+
+NL_EXAMPLES = ["@{bot} 帮我看下舞萌b50", "@{bot} 中二b30日服", "@{bot} 反叛是什么歌", "@{bot} 查下潘的定数"]
+NL_RULES = [
+    "要先由机器人主人发「/查分 llm 开」，默认关闭（省 token）；群里要 @我。",
+    "句子里要有请求的词：查 / 看看 / 发 / 帮我 / 多少 / 是什么歌……，或者整句就是「舞萌b50」这种短指令。",
+    "只是聊到 b50、谱面（「我b50好低啊」）不会触发，照常聊天。歌名对不上一首歌就不回，不乱发图。",
+]
+NOTES = [
+    "区服写在指令最后：国际服 / 日服 / 国服 / aqua / rin（私服）。不写就查你上一次查的那个服。",
+    "clal、SEGA ID 密码、落雪密钥只能私聊发；发在群里我会撤回并提醒你让它失效。",
+    "指令打错、没空格也认得（/舞萌b50、/mai查歌 潘）；不加 / 时只认干净的指令（mai b50），聊天里提到「舞萌」不会被当成指令。",
+    "定数默认按国际服显示，图上红字 = 其他服不一样。外号来自落雪 / Yuzuchan 别名库，每天更新；没收录的用「加别名」教我。",
+    "私服成绩按你最后上机的客户端版本算（定数、新旧曲、AP 加分），B50 图页头会标 Ver.x.xx。",
+    "国服没有官方查分网站：成绩是你传到落雪 / 水鱼的那份，图下面会写上传时间；发 /mai 更新、/chu 更新 看怎么传。",
+]
+
+_topic(Topic("more", "更多 · /查分", CORE, "/查分 也认 /score、/otoge", [
+    Section("/查分 …", [
+        R("/查分 账号", [], "你在每个游戏、每个区服绑了什么，默认查哪个", ["/查分 账号"], ("core",)),
+        R("/查分 进度", ["[文字]"], "各服现在是哪个版本 + 版本号、曲库和定数跟上没有；版本一变私聊通知主人", ["/查分 进度", "/查分 进度 文字"], ("core",)),
+        R("/查分 区服", [], "区服怎么写", ["/查分 区服"], ("core",)),
+        R("/查分 更新记录", ["[全]"], "插件最近改了什么（默认最近三版）", ["/查分 更新记录", "/查分 更新记录 全"], ("core",)),
+        R("/查分 理论", [], "舞萌、中二六个服的理论 Rating 一起列（= /理论ra）", ["/查分 理论"], ("core",)),
+        R("/查分 llm", ["<开/关>"], "本群「@我 用大白话查分」开关（机器人主人），默认关", ["/查分 llm 开"], ("core",)),
+        R("/查分 帮助", ["[主题]"], "总览；主题：舞萌 / 中二 / 音击 / sdvx / pjsk / 谱面 / 小游戏 / 更多 / 全", ["/查分 帮助 舞萌", "/查分 帮助 全"], ("core",)),
+    ]),
+]))
+
+TOPIC_WORDS = {
+    "mai": "mai", "舞萌": "mai", "maimai": "mai",
+    "chu": "chu", "中二": "chu", "chuni": "chu",
+    "geki": "geki", "音击": "geki", "ongeki": "geki",
+    "sdvx": "sdvx", "sv": "sdvx", "soundvoltex": "sdvx",
+    "pjsk": "pjsk", "prsk": "pjsk", "烧烤": "pjsk", "世界计划": "pjsk",
+    "chart": "chart", "谱面": "chart", "谱面图": "chart", "sdvx.in": "chart",
+    "games": "games", "小游戏": "games", "猜歌": "games", "游戏": "games",
+    "more": "more", "更多": "more", "其他": "more", "查分": "more",
+    "all": "all", "全": "all", "全部": "all", "完整": "all",
+}
+TOPIC_ORDER = ("mai", "chu", "geki", "sdvx", "pjsk", "chart", "games", "more")
+
+
+def topic_key(word: str | None) -> str | None:
+    """「舞萌」「chu」「全」→ 主题键；认不出返回 None（= 总览）。"""
+    return TOPIC_WORDS.get((word or "").strip().lower()) or None
+
+
+# ---------------------------------------------------------------- overview data
+FORMULA = [("/mai", "游戏", MAI), ("b50", "要干什么", CORE), ("日服", "区服（可以不写）", OPT)]
+
+# 总览的八张卡：(标题, 颜色, 能干什么, 发什么看详细)
+GUIDE = [
+    ("舞萌 DX", MAI, "B50 · 查歌 · 定数表 · 分数线", "/mai 帮助"),
+    ("中二节奏", CHU, "B50 · 查歌 · 定数表 · 谱面图", "/chu 帮助"),
+    ("音击", GEKI, "私服 B50 · 谱面图", "/geki 帮助"),
+    ("SDVX", SDVX, "谱面图 · 小游戏", "/sdvx 帮助"),
+    ("PJSK", PJSK, "谱面图 · 小游戏", "/pjsk 帮助"),
+    ("谱面图", CHART, "sdvx.in 四个游戏一起找", "/谱面 帮助"),
+    ("小游戏", MINIGAME, "开字母 · 猜曲绘 · 猜谱面", "/猜歌 帮助"),
+    ("绑定 · 更多", CORE, "绑账号 · 进度 · 大白话 · 注意", "/查分 帮助 更多"),
+]
+FIRST_STEP = ("第一次用？先绑定", "/网页绑定", "手机网页填账号，群里私聊都能发")
+OVERVIEW_TIPS = [
+    "区服写在最后，不写就查你上次查的那个服",
+    "打错、没空格也认得：/舞萌b50、/mai查歌 潘",
+    "全部指令一张图：/查分 帮助 全",
+]
+# 兼容旧代码 / WebUI：五个游戏能做什么
+MATRIX = [
+    ("mai", "/mai", "✓", "✓", "—", "✓", "国际服 · 日服 · 国服 · 私服", "/mai 帮助"),
+    ("chu", "/chu", "✓", "✓", "✓", "✓", "国际服 · 日服 · 国服 · 私服", "/chu 帮助"),
+    ("geki", "/geki", "私服", "—", "✓", "✓", "AquaDX", "/geki 帮助"),
+    ("sdvx", "/sdvx", "—", "—", "✓", "✓", "—", "/sdvx 帮助"),
+    ("pjsk", "/pjsk", "—", "—", "✓", "✓", "—", "/pjsk 帮助"),
+]
+
+
+# ---------------------------------------------------------------- text
+def _ex_for(row: Row, game: str | None) -> list[str]:
+    """详细页只显示和本页游戏对得上的例子；对不上任何一个就全显示。"""
+    if not game or game in ("chart", "games", "more"):
+        return row.examples
+    pre = PREFIX.get(game, "")
+    mine = [e for e in row.examples if e.startswith(pre + " ") or e == pre or not e.startswith("/")]
+    other = [e for e in row.examples if e.startswith("/") and e.split()[0] in PREFIX.values() and not e.startswith(pre)]
+    return mine or [e for e in row.examples if e not in other] or row.examples
+
+
+def _param_text(row: Row) -> str:
+    return " ".join(f"<{t}>" if req else f"[{t}]" for t, req in row.params)
+
+
+def topic_text(key: str, bot: str = "我") -> str:
+    t = TOPICS[key]
+    out = [f"【{t.title}】{t.intro}"]
+    for sec in t.sections:
+        out.append(f"— {sec.title}" + (f"（{sec.note}）" if sec.note else ""))
+        for r in sec.rows:
+            g = f"（{'/'.join(GAMES[x][0] for x in r.games)}）" if t.multi and r.games else ""
+            out.append(f"· {r.cmd} {_param_text(r)}{g} {r.desc}。例：{'　'.join(_ex_for(r, key))}".replace("  ", " "))
+    if key == "more":
+        out.append("— @我 用大白话查（群里要先开 /查分 llm 开）")
+        out.append("例：" + " / ".join(e.format(bot=bot) for e in NL_EXAMPLES))
+        out += [f"· {n}" for n in NL_RULES]
+        out.append("— 注意")
+        out += [f"· {n}" for n in NOTES]
+    elif t.tips:
+        out.append("— 注意")
+        out += [f"· {n}" for n in t.tips]
+    return "\n".join(out)
+
+
+def overview_text() -> str:
+    out = ["指令 = /游戏 + 要干什么 + 区服（可以不写），例如 /mai b50 日服",
+           f"{FIRST_STEP[0]}：{FIRST_STEP[1]}（{FIRST_STEP[2]}）",
+           "想知道怎么用，发对应的帮助："]
+    for title, _c, what, cmd in GUIDE:
+        out.append(f"· {title}（{what}）→ {cmd}")
+    out += [f"· {n}" for n in OVERVIEW_TIPS]
+    return "\n".join(out)
+
+
+def help_text(topic: str | None = None, bot: str = "我") -> str:
+    """文字版兜底：None = 总览，主题键 = 那一页，"all" = 全部。"""
+    if topic == "all":
+        return "\n\n".join(topic_text(k, bot) for k in TOPIC_ORDER)
+    if topic in TOPICS:
+        return topic_text(topic, bot)
+    return overview_text()
+
+
+# ---------------------------------------------------------------- drawing helpers
+_NO_LINE_START = set("，。、；：！？）」』》,.;:!?)")
+
+
+def _wrap(text: str, kind: str, size: int, width: int, max_lines: int = 3) -> list[str]:
+    """按宽度折行：英文单词 / 版本号不从中间断开，标点不放行首；超过 max_lines 行时最后一行截断加省略。"""
+    tokens = re.findall(r"[A-Za-z0-9._\-+/:@<>]+|\s|.", text)
+    lines, cur = [], ""
+    for i, tok in enumerate(tokens):
+        if F.text_width(cur + tok, kind, size) > width and cur.strip() and tok not in _NO_LINE_START:
+            lines.append(cur.rstrip())
+            cur = tok.lstrip()
+            if len(lines) == max_lines:
+                lines[-1] = F.fit(lines[-1] + cur + "".join(tokens[i + 1:]), kind, size, width)
+                return lines
+        else:
+            cur += tok
+    if cur.strip():
+        lines.append(cur)
+    return lines
+
+
+W, M = 1600, 36
+INNER = 26
+COLS, GAP = 3, 18
+COL_W = (W - 2 * M - 2 * INNER - (COLS - 1) * GAP) // COLS
+DESC_SIZE, EX_SIZE = 22, 20
+TITLE_H = 150
+
+
+def _chips(d, x_right, y, games, size=16) -> int:
+    gx = x_right
+    for g in reversed(games):
+        label, col = GAMES[g]
+        cw = F.text_width(label, "bold", size) + 18
+        d.rounded_rectangle((gx - cw, y, gx, y + size + 12), (size + 12) // 2, fill=col)
+        F.draw_text(d, (gx - cw + 9, y + 3), label, "bold", size, (255, 255, 255))
+        gx -= cw + 6
+    return gx
+
+
+def _row_lines(row: Row, w: int) -> list[str]:
+    return _wrap(row.desc, "regular", DESC_SIZE, w - 44, 3)
+
+
+def _row_h(row: Row, w: int, game: str | None) -> int:
+    ex = len(_ex_for(row, game)[:2])
+    return 16 + 40 + 8 + len(_row_lines(row, w)) * 30 + 6 + ex * 30 + 14
+
+
+def _draw_row(im, d, x, y, w, h, row: Row, accent, game: str | None, multi: bool) -> None:
+    d.rounded_rectangle((x, y, x + w, y + h), 20, fill=(255, 255, 255, 190))
+    d.rounded_rectangle((x, y + 16, x + 6, y + 52), 3, fill=accent)
+    gx = x + w - 16
+    if multi and row.games:
+        gx = _chips(d, gx, y + 18, row.games)
+    cx = F.draw_text(d, (x + 22, y + 14), row.cmd, "bold", 30, K.INK) + 12
+    for text, req in row.params:
+        col = REQ if req else OPT
+        label = f"<{text}>" if req else f"[{text}]"
+        if cx + K.pill_width(label, 17, pad=9) > gx - 8:
+            break
+        cx = K.pill(d, cx, y + 20, label, size=17, h=28, pad=9, fg=col, bg=tint(col), outline=None) + 6
+    ty = y + 16 + 40 + 8
+    for line in _row_lines(row, w):
+        F.draw_text(d, (x + 22, ty), line, "regular", DESC_SIZE, TEXT)
+        ty += 30
+    ty += 6
+    for ex in _ex_for(row, game)[:2]:
+        px = K.pill(d, x + 20, ty + 2, "例", size=15, h=26, pad=9, fg=(255, 255, 255), bg=accent)
+        F.draw_text(d, (px + 8, ty + 3), F.fit(ex, "regular", EX_SIZE, w - (px - x) - 32), "regular", EX_SIZE, (110, 92, 140))
+        ty += 30
+
+
+def _section_blocks(t: Topic):
+    """主题的正文：[(高度, 画函数(im, d, y))]。总览、详细页、全部页共用。"""
+    game = t.key if t.key in PREFIX else None
+    blocks = []
+    for sec in t.sections:
+        rows = sec.rows
+        heights = []
+        for i in range(0, len(rows), COLS):
+            heights.append(max(_row_h(r, COL_W, game) for r in rows[i:i + COLS]))
+        h = 84 + sum(hh + 14 for hh in heights) + 10
+
+        def draw(im, d, y, sec=sec, rows=rows, heights=heights, h=h):
+            K.panel(im, (M, y, W - M, y + h), r=30)
+            d.rounded_rectangle((M + 26, y + 26, M + 33, y + 62), 4, fill=t.colour)
+            end = F.draw_text(d, (M + 48, y + 22), sec.title, "bold", 32, K.INK)
+            if sec.note:
+                K.pill(d, end + 16, y + 28, sec.note, size=18, h=30, pad=11, fg=t.colour, bg=tint(t.colour, 0.16))
+            ry = y + 84
+            for i, rh in zip(range(0, len(rows), COLS), heights):
+                for j, row in enumerate(rows[i:i + COLS]):
+                    _draw_row(im, d, M + INNER + j * (COL_W + GAP), ry, COL_W, rh, row, t.colour, game, t.multi)
+                ry += rh + 14
+        blocks.append((h, draw))
+    # 大白话（只在「更多」）
+    if t.key == "more":
+        nl_lines = [_wrap("· " + n, "regular", 22, W - 2 * M - 80, 3) for n in NL_RULES]
+        h = 84 + 50 + sum(len(ls) * 32 + 6 for ls in nl_lines) + 18
+
+        def draw_nl(im, d, y, h=h):
+            K.panel(im, (M, y, W - M, y + h), r=30)
+            d.rounded_rectangle((M + 26, y + 26, M + 33, y + 62), 4, fill=MAI)
+            end = F.draw_text(d, (M + 48, y + 22), "@我 用大白话查", "bold", 32, K.INK)
+            K.pill(d, end + 16, y + 28, "群里要先开 /查分 llm 开", size=18, h=30, pad=11, fg=REQ, bg=tint(REQ))
+            ex = M + 40
+            for e in (x.format(bot=_BOT[0]) for x in NL_EXAMPLES):
+                if ex + K.pill_width(e, 20, pad=13) > W - M - 30:
+                    break
+                ex = K.pill(d, ex, y + 80, e, size=20, h=36, pad=13, fg=(110, 70, 170), bg=tint(MAI, 0.12)) + 10
+            ny = y + 84 + 50
+            for ls in nl_lines:
+                for k, line in enumerate(ls):
+                    F.draw_text(d, (M + 40 + (22 if k else 0), ny), line, "regular", 22, TEXT)
+                    ny += 32
+                ny += 6
+        blocks.append((h, draw_nl))
+    tips = NOTES if t.key == "more" else t.tips
+    if tips:
+        tip_lines = [_wrap("· " + n, "regular", 22, W - 2 * M - 80, 3) for n in tips]
+        h = 84 + sum(len(ls) * 32 + 6 for ls in tip_lines) + 14
+
+        def draw_tips(im, d, y, h=h, tip_lines=tip_lines):
+            K.panel(im, (M, y, W - M, y + h), r=30)
+            d.rounded_rectangle((M + 26, y + 26, M + 33, y + 62), 4, fill=REQ)
+            F.draw_text(d, (M + 48, y + 22), "注意", "bold", 32, K.INK)
+            ny = y + 84
+            for ls in tip_lines:
+                for k, line in enumerate(ls):
+                    F.draw_text(d, (M + 40 + (22 if k else 0), ny), line, "regular", 22, TEXT)
+                    ny += 32
+                ny += 6
+        blocks.append((h, draw_tips))
+    return blocks
+
+
+_BOT = ["AstrBot"]      # 大白话例子里的机器人名（画图时临时放这里）
+
+
+def _title(im, d, y, colour, title, sub, right_pills=(), legend=True) -> int:
+    K.panel(im, (M, y, W - M, y + TITLE_H), r=36)
+    d.rounded_rectangle((M + 28, y + 36, M + 104, y + 112), 22, fill=colour)
+    F.draw_text(d, (M + 48, y + 40), "?", "latin", 54, (255, 255, 255))
+    F.draw_text(d, (M + 130, y + 30), title, "bold", 46, K.INK)
+    F.draw_text(d, (M + 132, y + 96), F.fit(sub, "regular", 23, W - 2 * M - 560), "regular", 23, TEXT)
+    lx = W - M - 28
+    for label, col in ((("[可选]", OPT), ("<必填>", REQ)) if legend else ()):
+        w = K.pill_width(label, 20, pad=12)
+        K.pill(d, lx - w, y + 36, label, size=20, h=34, pad=12, fg=col, bg=tint(col, 0.18))
+        lx -= w + 10
+    lx = W - M - 28
+    for label, col in reversed(list(right_pills)):
+        w = K.pill_width(label, 19, pad=12)
+        K.pill(d, lx - w, y + 84, label, size=19, h=32, pad=12, fg=(255, 255, 255), bg=col)
+        lx -= w + 8
+    return y + TITLE_H
+
+
+def _compose(bot_name: str, assets, blocks, colour, title, sub, right_pills=(), legend=True) -> bytes:
+    H = 30 + TITLE_H + 24 + sum(h + 22 for h, _f in blocks) + 90
+    im = K.background(assets, "", W, H, seed=7)
+    d = ImageDraw.Draw(im)
+    y = _title(im, d, 30, colour, title, sub, right_pills, legend) + 24
+    for h, f in blocks:
+        f(im, d, y)
+        y += h + 22
+    K.footer(im, bot_name, credit="")
+    return K.to_png(im)
+
+
+# ---------------------------------------------------------------- pages
+def render_topic(key: str, bot_name: str = "AstrBot", assets=None) -> bytes:
+    t = TOPICS[key]
+    _BOT[0] = bot_name
+    pills = [(GAMES[g][0], GAMES[g][1]) for g in (("chu", "geki", "sdvx", "pjsk") if key == "chart"
+                                                   else ("mai", "chu", "geki", "sdvx", "pjsk") if key == "games"
+                                                   else (key,) if key in GAMES else ())]
+    return _compose(bot_name, assets, _section_blocks(t), t.colour, f"{bot_name} · {t.title} · 帮助", t.intro, pills)
+
+
+def render_full(bot_name: str = "AstrBot", assets=None) -> bytes:
+    """全部主题拼一张长图（/查分 帮助 全）。"""
+    _BOT[0] = bot_name
+    blocks = []
+    for key in TOPIC_ORDER:
+        t = TOPICS[key]
+        h = 64
+
+        def head(im, d, y, t=t):
+            x = K.pill(d, M, y + 8, t.title, size=28, h=50, pad=22, fg=(255, 255, 255), bg=t.colour)
+            F.draw_text(d, (x + 16, y + 18), F.fit(t.intro, "regular", 22, W - (x + 16) - M), "regular", 22, TEXT)
+        blocks.append((h, head))
+        blocks += _section_blocks(t)
+    pills = [(GAMES[g][0], GAMES[g][1]) for g in ("mai", "chu", "geki", "sdvx", "pjsk")]
+    return _compose(bot_name, assets, blocks, CORE, f"{bot_name} 音游查分 · 全部指令",
+                    "指令 = /游戏 动作 [区服]。分主题看：/mai · /chu · /geki · /sdvx · /pjsk · /谱面 · /猜歌 帮助，/查分 帮助 更多", pills)
+
+
+VER_REGION_COLORS = dict(PAL.REGION)
+
+
+def render_help(bot_name: str = "AstrBot", assets=None, versions=None) -> bytes:
+    """总览（/查分 帮助）：大字只指路，具体指令在各自的帮助页。
+    versions: [(游戏, 区服, 版本名, 版本号)]，有就在底部画一条；None 不画。"""
+    versions = list(versions or [])
+    blocks = []
+
+    # ---- 指令怎么读 ----
+    fh = 84 + 150 + 20
+
+    def draw_formula(im, d, y, fh=fh):
+        K.panel(im, (M, y, W - M, y + fh), r=30)
+        d.rounded_rectangle((M + 26, y + 28, M + 34, y + 70), 4, fill=CORE)
+        F.draw_text(d, (M + 50, y + 22), "指令怎么读", "bold", 38, K.INK)
+        fx, fy = M + 56, y + 96
+        for word, label, col in FORMULA:
+            w = K.pill_width(word, 52, pad=28)
+            K.pill(d, fx, fy, word, size=52, h=86, pad=28, fg=(255, 255, 255), bg=col)
+            lw = F.text_width(label, "bold", 22)
+            F.draw_text(d, (fx + (w - lw) // 2, fy + 94), label, "bold", 22, col)
+            fx += w + 26
+        F.draw_text(d, (fx + 12, fy + 6), "=  舞萌的 B50 成绩图（日服）", "bold", 36, PAL.INK)
+        F.draw_text(d, (fx + 14, fy + 56), "/谱面、/猜歌、/网页绑定 这几个不用加游戏", "regular", 24, TEXT)
+    blocks.append((fh, draw_formula))
+
+    # ---- 第一次用 ----
+    sh = 120
+
+    def draw_first(im, d, y, sh=sh):
+        K.panel(im, (M, y, W - M, y + sh), r=30)
+        title, cmd, sub = FIRST_STEP
+        x = F.draw_text(d, (M + 50, y + 36), title, "bold", 38, K.INK) + 30
+        x = K.pill(d, x, y + 26, cmd, size=40, h=68, pad=26, fg=(255, 255, 255), bg=CORE) + 24
+        F.draw_text(d, (x, y + 44), sub, "regular", 26, TEXT)
+    blocks.append((sh, draw_first))
+
+    # ---- 发什么看什么：8 张大卡 ----
+    cols, gap = 4, 18
+    cw = (W - 2 * M - (cols - 1) * gap) // cols
+    ch = 236
+    rows = (len(GUIDE) + cols - 1) // cols
+    gh = 74 + rows * (ch + gap)
+
+    def draw_guide(im, d, y, gh=gh):
+        F.draw_text(d, (M + 8, y + 8), "想知道怎么用，就发对应的帮助 ↓", "bold", 40, PAL.INK)
+        for i, (title, col, what, cmd) in enumerate(GUIDE):
+            x = M + (i % cols) * (cw + gap)
+            cy = y + 74 + (i // cols) * (ch + gap)
+            K.panel(im, (x, cy, x + cw, cy + ch), r=28)
+            d.rounded_rectangle((x, cy, x + cw, cy + 14), 7, fill=col)
+            d.rectangle((x, cy + 7, x + cw, cy + 14), fill=col)
+            F.draw_text(d, (x + 26, cy + 30), F.fit(title, "bold", 40, cw - 52), "bold", 40, col)
+            for k, line in enumerate(_wrap(what, "regular", 24, cw - 52, 2)):
+                F.draw_text(d, (x + 28, cy + 88 + k * 32), line, "regular", 24, TEXT)
+            size = 32 if F.text_width(cmd, "bold", 32) + 48 <= cw - 44 else 26
+            K.pill(d, x + 22, cy + ch - 76, cmd, size=size, h=56, pad=22, fg=(255, 255, 255), bg=col)
+    blocks.append((gh, draw_guide))
+
+    # ---- 小贴士 + 版本 ----
+    vers_games = list(dict.fromkeys(g for g, *_r in versions))
+    th = 30 + len(OVERVIEW_TIPS) * 46 + (24 + len(vers_games) * 48 if versions else 0) + 20
+
+    def draw_tips(im, d, y, th=th):
+        K.panel(im, (M, y, W - M, y + th), r=30)
+        ty = y + 30
+        for n in OVERVIEW_TIPS:
+            d.ellipse((M + 50, ty + 12, M + 64, ty + 26), fill=CORE)
+            F.draw_text(d, (M + 82, ty), n, "regular", 28, TEXT)
+            ty += 46
+        if versions:
+            ty += 14
+            for game in vers_games:
+                glabel, gcol = GAMES.get(game, (game, CORE))
+                vx = K.pill(d, M + 50, ty, f"{glabel} 现在的版本", size=19, h=36, pad=13, fg=(255, 255, 255), bg=gcol) + 12
+                for g, region, name, num in versions:
+                    if g != game:
+                        continue
+                    rc = PAL.REGION.get(region, CORE)
+                    text = f"{region} {name}" + (f" · {num}" if num else "")
+                    if vx + K.pill_width(text, 19, pad=13) > W - M - 30:
+                        break
+                    vx = K.pill(d, vx, ty, text, size=19, h=36, pad=13, fg=rc, bg=tint(rc, 0.14)) + 8
+                ty += 48
+    blocks.append((th, draw_tips))
+
+    pills = [(GAMES[g][0], GAMES[g][1]) for g in ("mai", "chu", "geki", "sdvx", "pjsk")]
+    return _compose(bot_name, assets, blocks, CORE, f"{bot_name} 音游查分 · 帮助",
+                    "舞萌 · 中二 · 音击查分，SDVX / PJSK 谱面图，群里猜歌小游戏", pills, legend=False)

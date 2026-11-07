@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f6f3f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16141a" media="(prefers-color-scheme: dark)">
+<title>{{BOT}} · 绑定查分账号</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <div class="brand"><span class="dot"></span>{{BOT}} · 音游查分</div>
+    <h1>绑定账号</h1>
+    <p class="who" id="who">正在打开…</p>
+  </header>
+
+  <section class="card notice" id="expired" hidden>
+    <h2 id="expiredTitle">链接已失效</h2>
+    <p id="expiredWhy">链接 10 分钟内有效，而且只认最新的一条。</p>
+    <p>在群里或私聊发 <code>/网页绑定</code> 重新要一个。</p>
+  </section>
+
+  <div id="app" hidden>
+    <section class="card" id="boundCard">
+      <h2>已绑定</h2>
+      <div class="chips" id="bound"></div>
+    </section>
+
+    <section class="card">
+      <h2><span class="n">1</span>游戏</h2>
+      <div class="games" role="radiogroup" aria-label="游戏">
+        <button type="button" class="game mai" data-game="mai" role="radio" aria-checked="false">
+          <b>舞萌 DX</b><small>maimai DX</small></button>
+        <button type="button" class="game chu" data-game="chu" role="radio" aria-checked="false">
+          <b>中二节奏</b><small>CHUNITHM</small></button>
+        <button type="button" class="game geki" data-game="geki" role="radio" aria-checked="false">
+          <b>音击</b><small>ONGEKI · 只有私服</small></button>
+      </div>
+    </section>
+
+    <section class="card" id="serverCard" hidden>
+      <h2><span class="n">2</span>区服</h2>
+      <div class="seg" id="servers" role="radiogroup" aria-label="区服"></div>
+    </section>
+
+    <section class="card" id="methodCard" hidden>
+      <h2><span class="n">3</span>绑定方式</h2>
+      <div class="methods" id="methods" role="radiogroup" aria-label="绑定方式"></div>
+    </section>
+
+    <form class="card" id="form" hidden autocomplete="off" novalidate>
+      <h2><span class="n">4</span><span id="formTitle">填写</span></h2>
+
+      <div class="field" data-for="clal">
+        <label for="clal">clal</label>
+        <input id="clal" name="clal" inputmode="latin" autocapitalize="off" autocorrect="off" spellcheck="false"
+               maxlength="80" placeholder="64 位字母和数字">
+        <details class="how"><summary>clal 怎么拿？</summary>
+          <ol>
+            <li>用<strong>电脑</strong>浏览器打开 <span id="netUrl">NET 网站</span>，用 SEGA ID 登录，勾选保持登录</li>
+            <li>按 F12 → Application（应用）→ Cookies → <code>lng-tgk-aime-gw.am-all.net</code></li>
+            <li>复制 <code>clal</code> 那一行的值（64 位），粘贴到这里</li>
+          </ol>
+          <p class="tip">这个页面电脑上也能打开：把链接发到电脑上做最方便。<span id="clalAlt"></span></p>
+        </details>
+      </div>
+
+      <div class="field" data-for="sega">
+        <label for="segaId">SEGA ID</label>
+        <input id="segaId" name="username" autocomplete="username" autocapitalize="off" autocorrect="off"
+               spellcheck="false" maxlength="64" placeholder="SEGA ID">
+        <label for="password">密码</label>
+        <div class="pw">
+          <input id="password" name="password" type="password" autocomplete="current-password" maxlength="128"
+                 placeholder="SEGA ID 的密码">
+          <button type="button" class="ghost" id="pwToggle" aria-label="显示密码">显示</button>
+        </div>
+        <p class="tip" id="segaTip">clal 过期时会用账号密码自动重新登录，不用再来绑。</p>
+      </div>
+
+      <div class="field" data-for="lx">
+        <label for="lxKey">落雪个人 API 密钥</label>
+        <input id="lxKey" name="lxkey" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="512"
+               placeholder="粘贴完整的一串">
+        <details class="how" open><summary>密钥怎么拿？</summary>
+          <ol>
+            <li>打开 <a href="https://maimai.lxns.net/" target="_blank" rel="noopener noreferrer">maimai.lxns.net</a> 并登录</li>
+            <li>进「账号详情」→「个人 API 密钥」，生成一个，复制</li>
+            <li>粘贴到上面。同一个密钥舞萌、中二国服都能用</li>
+          </ol>
+        </details>
+      </div>
+
+      <div class="field" data-for="lxoauth">
+        <p class="tip">点下面的按钮会跳到落雪查分器（maimai.lxns.net），没登录的话先登录，然后点「授权」，会自动跳回这里。
+          不用复制任何密钥；舞萌、中二国服一次都绑好，能查全部成绩。</p>
+      </div>
+
+      <div class="field" data-for="lxqq">
+        <p class="tip">不用填任何东西：我用你的 QQ 去落雪查分器找你的账号。需要你在落雪绑定了这个 QQ，并在「隐私设置」里允许第三方查询。
+          只能拿到 B50 范围的成绩；要查单曲、完成表、最近游玩，选「落雪授权」。</p>
+      </div>
+
+      <div class="field" data-for="df">
+        <label for="dfName">水鱼用户名 <span class="opt">可不填</span></label>
+        <input id="dfName" name="dfname" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="64"
+               placeholder="不填就用你的 QQ 去水鱼查">
+        <p class="tip">水鱼不需要密钥。要在水鱼查分器里允许别人查你的成绩（关掉「禁止其他人查询」）。</p>
+      </div>
+
+      <div class="field" data-for="user">
+        <label for="privUser">网站用户名</label>
+        <input id="privUser" name="privuser" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="200"
+               placeholder="用户名，或者直接粘贴个人主页链接">
+        <p class="tip" id="privUserTip">个人主页地址里 /u/ 后面那段。只是公开的用户名，不是密码。</p>
+      </div>
+
+      <div class="field" data-for="rinlogin">
+        <label for="rinAccount">RinNET 账号或邮箱</label>
+        <input id="rinAccount" name="username" autocomplete="username" autocapitalize="off" autocorrect="off"
+               spellcheck="false" maxlength="128" placeholder="登录 portal.naominet.live 用的账号">
+        <label for="rinPassword">密码</label>
+        <div class="pw">
+          <input id="rinPassword" name="password" type="password" autocomplete="current-password" maxlength="128"
+                 placeholder="RinNET 的密码">
+          <button type="button" class="ghost" id="rinPwToggle" aria-label="显示密码">显示</button>
+        </div>
+        <label for="rinCode">两步验证码 <span class="opt">没开两步验证就不填</span></label>
+        <input id="rinCode" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 位数字">
+        <p class="tip">{{BOT}} 只用密码登录这一次，之后只加密保存登录令牌，<strong>不存密码</strong>。在 RinNET 网站上退出登录或改密码后令牌失效，到时候再来绑一次。</p>
+      </div>
+
+      <div class="field" data-for="rintoken">
+        <label for="rinToken">RinNET refreshToken</label>
+        <input id="rinToken" name="rintoken" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="200"
+               placeholder="粘贴完整的一串">
+        <details class="how" open><summary>令牌怎么拿？（用 GitHub / 微软等第三方登录、没有密码的号）</summary>
+          <ol>
+            <li>用<strong>电脑</strong>浏览器登录 portal.naominet.live</li>
+            <li>按 F12 → Application（应用）→ Local Storage → <code>currentAccount</code></li>
+            <li>复制里面 <code>refreshToken</code> 的值（引号里那串），粘贴到这里</li>
+          </ol>
+        </details>
+      </div>
+
+      <div class="consent" id="consent">
+        <pre id="consentText"></pre>
+        <label class="check"><input type="checkbox" id="agree"><span>我看完了，同意</span></label>
+      </div>
+
+      <button type="submit" class="go" id="go">绑定</button>
+      <div class="result" id="result" role="status" aria-live="polite" hidden></div>
+    </form>
+
+    <footer class="foot">
+      <p>凭据走 HTTPS 直接交给 {{BOT}}，加密保存，不会出现在聊天记录里，也不会交给 AI。</p>
+      <p>不想用了：发 <code>/mai 解绑</code> 或 <code>/chu 解绑</code>；私服发 <code>/mai 解绑 aqua</code> 这样带上私服名（舞萌、中二、音击一起解）。</p>
+    </footer>
+  </div>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

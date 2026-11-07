@@ -1,0 +1,7 @@
+{
+  "views": {
+    "a_overview": {"title": "Overview", "description": "Overview (games / minigames / cache), running minigames, natural-language switch per group, default server for constants, help preview, assets"},
+    "mai": {"title": "maimai DX", "description": "Bindings (intl / jp / cn), users, catalog, B50 theme"},
+    "chuni": {"title": "CHUNITHM", "description": "Bindings, test queries, catalog refresh, B50 theme"}
+  }
+}

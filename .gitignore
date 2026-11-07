@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+# AstrBot 跑测试时会在插件目录写出这些
+data/
+.DS_Store

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<script src="/api/plugin/page/bridge-sdk.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>音游查分 · 总览</title>
+<style>
+  :root {
+    --bg: #f6f3fb; --card: #ffffff; --ink: #2b2140; --sub: #7a6d93; --line: #e6def3;
+    --accent: #4e5a70; --accent2: #6b7a96; --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --chip: #eef0f5;
+    --mai: #2878eb; --chu: #dea00a; --geki: #ec5096; --sdvx: #8a46dc; --pjsk: #20b2a6; --chart: #e66928; --mini: #cd3e3e;
+  }
+  html[data-theme="dark"] {
+    --bg: #17141f; --card: #221d2e; --ink: #ece6f7; --sub: #a99cc2; --line: #362d48;
+    --accent: #7d8aa6; --accent2: #9aa6bf; --chip: #2b2f3c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 18px; background: var(--bg); color: var(--ink);
+         font: 14px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  h1 small { font-size: 13px; color: var(--sub); font-weight: normal; margin-left: 8px; }
+  .lead { color: var(--sub); margin: 0 0 16px; }
+  nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; position: sticky; top: 0; z-index: 5;
+        background: var(--bg); padding: 6px 0; }
+  nav a { padding: 6px 12px; border-radius: 999px; background: var(--chip); color: var(--ink); text-decoration: none; font-size: 13px; }
+  nav a:hover { background: var(--accent); color: #fff; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 16px; }
+  section h2 { margin: 0 0 4px; font-size: 17px; }
+  .desc { color: var(--sub); font-size: 13px; margin: 0 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .stat { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .stat .k { color: var(--sub); font-size: 12px; }
+  .stat .v { font-size: 20px; font-weight: 700; }
+  .stat .s { color: var(--sub); font-size: 12px; word-break: break-all; }
+  label { display: inline-flex; align-items: center; gap: 6px; margin: 4px 12px 4px 0; }
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font: inherit; }
+  input[type=text], input[type=password] { min-width: 220px; }
+  textarea { width: 100%; min-height: 70px; }
+  button { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; border: 0; border-radius: 8px;
+           padding: 7px 14px; font: inherit; cursor: pointer; margin: 4px 6px 4px 0; }
+  button.ghost { background: var(--chip); color: var(--ink); }
+  button.danger { background: var(--bad); }
+  button:disabled { opacity: .5; cursor: wait; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap;
+        word-break: break-word; max-height: 420px; overflow: auto; font: 12.5px/1.5 Consolas, "Cascadia Mono", monospace; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 7px 6px; text-align: left; vertical-align: top; }
+  th { color: var(--sub); font-weight: 600; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--chip); font-size: 12px; margin-right: 4px; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 6px 0; }
+  .icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .icon { border: 1px dashed var(--line); border-radius: 10px; padding: 8px; font-size: 12px; }
+  .icon b { display: block; }
+  #preview img { max-width: 100%; border-radius: 10px; border: 1px solid var(--line); margin-top: 8px; }
+  .toast { position: fixed; right: 18px; top: 18px; background: var(--ink); color: var(--bg); padding: 9px 14px;
+           border-radius: 10px; opacity: 0; transition: opacity .2s; max-width: 70%; z-index: 9; }
+  .toast.show { opacity: .95; }
+  .hint { color: var(--sub); font-size: 12px; }
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 18px; text-align: center; color: var(--sub); cursor: pointer; }
+  .drop.over { border-color: var(--accent); background: var(--chip); color: var(--ink); }
+  .tabs { display: flex; gap: 6px; margin: 10px 0; }
+  .tabs button { margin: 0; }
+  .tabs button.off { background: var(--chip); color: var(--ink); }
+  .agroup { margin: 12px 0 4px; font-weight: 600; }
+  .agroup span { color: var(--sub); font-weight: normal; font-size: 12px; margin-left: 6px; }
+  .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+  .slot { border: 1px solid var(--line); border-radius: 9px; padding: 6px 8px; font-size: 12px; cursor: pointer; background: var(--bg); }
+  .slot:hover { border-color: var(--accent); }
+  .slot b { display: block; font-size: 13px; }
+  .slot code { color: var(--sub); font-size: 11px; word-break: break-all; }
+  .slot.have { border-left: 4px solid var(--ok); }
+  .slot.miss { border-left: 4px solid var(--line); opacity: .8; }
+  .slot.sel { outline: 2px solid var(--accent); }
+  #a-panel { display: none; border: 1px solid var(--accent); border-radius: 12px; padding: 10px 12px; margin: 10px 0; }
+  #a-panel img { max-width: 320px; max-height: 220px; display: block; margin: 6px 0; border-radius: 8px;
+                 background: repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
+  #a-log { max-height: 220px; }
+  code { font-family: Consolas, "Cascadia Mono", monospace; }
+  .g { display: inline-block; padding: 1px 9px; border-radius: 999px; color: #fff; font-weight: 600; font-size: 12px; }
+  .g.mai { background: var(--mai); } .g.chu { background: var(--chu); } .g.geki { background: var(--geki); }
+  .g.sdvx { background: var(--sdvx); } .g.pjsk { background: var(--pjsk); } .g.chart { background: var(--chart); } .g.mini { background: var(--mini); }
+  .stat.mai { border-top: 4px solid var(--mai); } .stat.chu { border-top: 4px solid var(--chu); } .stat.geki { border-top: 4px solid var(--geki); }
+  .stat.chart { border-top: 4px solid var(--chart); } .stat.mini { border-top: 4px solid var(--mini); }
+</style>
+</head>
+<body>
+<h1>音游查分 <small id="ver"></small></h1>
+<p class="lead">舞萌 DX · 中二节奏 · 音击 查分，SDVX / PJSK 谱面图，群里猜歌小游戏。这一页管通用的东西；各游戏的绑定、曲库在「舞萌 DX」「中二节奏」两个页面里（AstrBot「插件 → 音游查分 → 详情」能打开）。</p>
+<nav><a href="#s-over">总览</a><a href="#s-log">最近更新</a><a href="#s-how">指令</a><a href="#s-games">小游戏</a><a href="#s-llm">自然语言开关</a><a href="#s-ds">定数默认区服</a><a href="#s-nl">意图测试</a><a href="#s-acc">查账号</a><a href="#s-help">帮助图预览</a><a href="#s-assets">素材</a></nav>
+
+<section id="s-over">
+  <h2>总览</h2>
+  <div class="grid" id="overview"></div>
+  <div class="card" id="lx-card" style="margin-top:12px">
+    <b>落雪开发者令牌</b> <span id="lx-state" class="hint"></span>
+    <p class="hint">有了它，玩家不用申请个人密钥：没绑国服的人发 /mai b50、/chu b50 会按 QQ 去落雪找（只有 B50 范围）。
+      令牌在 maimai.lxns.net「开发者中心」申请。保存后马上生效；页面不会再显示令牌本身。</p>
+    <input id="lx-input" type="password" autocomplete="off" placeholder="粘贴开发者令牌" style="width:60%">
+    <button id="lx-save">保存并测试</button> <button class="danger" id="lx-clear">清除</button>
+    <hr>
+    <b>落雪授权（OAuth 应用）</b> <span id="lxo-state" class="hint"></span>
+    <p class="hint">玩家在网页绑定里选「落雪授权」，跳到落雪点一下就绑好，能查全部成绩、不用复制密钥。
+      在 maimai.lxns.net/developer 建应用，权限只开「读取玩家数据」，回调地址填：<code id="lxo-redirect"></code></p>
+    <input id="lxo-id" autocomplete="off" placeholder="应用 ID（client_id）" style="width:40%">
+    <input id="lxo-secret" type="password" autocomplete="off" placeholder="应用密钥（只改 ID 可留空）" style="width:40%">
+    <button id="lxo-save">保存</button> <button class="danger" id="lxo-clear">清除</button>
+  </div>
+  <p class="hint" id="migration"></p>
+</section>
+
+<section id="s-log">
+  <h2>最近更新</h2>
+  <div id="changelog"></div>
+  <p class="hint">全部记录在插件目录的 CHANGELOG.md；QQ 里发 <code>/查分 更新记录</code>（加「全」看全部）。</p>
+</section>
+
+<section id="s-how">
+  <h2>指令怎么读</h2>
+  <p class="desc">指令 = <code>/游戏 动作 [区服]</code>，例如 <code>/mai b50 日服</code>。区服写在最后，不写就查该用户上一次查的那个服。独立指令（<code>/谱面</code>、<code>/猜歌</code>、<code>/网页绑定</code>、<code>/查分 …</code>）不用加游戏。打错、没空格也认（<code>/舞萌b50</code>）。</p>
+  <table>
+    <tr><th style="width:90px">游戏</th><th style="width:80px">前缀</th><th>查成绩</th><th>查歌 · 定数</th><th>谱面图</th><th>小游戏</th><th>区服</th><th>详细帮助</th></tr>
+    <tr><td><span class="g mai">舞萌</span></td><td><code>/mai</code></td><td class="ok">✓</td><td class="ok">✓</td><td>—</td><td class="ok">✓</td><td>国际服 · 日服 · 国服 · 私服</td><td><code>/mai 帮助</code></td></tr>
+    <tr><td><span class="g chu">中二</span></td><td><code>/chu</code></td><td class="ok">✓</td><td class="ok">✓</td><td class="ok">✓</td><td class="ok">✓</td><td>国际服 · 日服 · 国服 · 私服</td><td><code>/chu 帮助</code></td></tr>
+    <tr><td><span class="g geki">音击</span></td><td><code>/geki</code></td><td>私服 AquaDX</td><td>—</td><td class="ok">✓</td><td class="ok">✓</td><td>AquaDX</td><td><code>/geki 帮助</code></td></tr>
+    <tr><td><span class="g sdvx">SDVX</span></td><td><code>/sdvx</code></td><td>—</td><td>—</td><td class="ok">✓</td><td class="ok">✓</td><td>—</td><td><code>/sdvx 帮助</code></td></tr>
+    <tr><td><span class="g pjsk">PJSK</span></td><td><code>/pjsk</code></td><td>—</td><td>—</td><td class="ok">✓</td><td class="ok">✓</td><td>—</td><td><code>/pjsk 帮助</code></td></tr>
+  </table>
+  <p class="desc" style="margin-top:10px">用户看到的帮助：<code>/查分 帮助</code> 是一屏大字总览，只指路；<code>/mai</code>、<code>/chu</code>、<code>/geki</code>、<code>/sdvx</code>、<code>/pjsk 帮助</code> 是各游戏自己的页，<code>/谱面 帮助</code> 是 sdvx.in 谱面图（四个游戏一起），<code>/猜歌 帮助</code> 小游戏，<code>/查分 帮助 更多</code> 绑定和其他；<code>/查分 帮助 全</code> 拼成一张长图。下面「帮助图预览」能看每一页。自然语言（@机器人 帮我看下舞萌日服 b50）<b>默认关闭</b>，按群打开。</p>
+</section>
+
+<section id="s-games">
+  <h2>小游戏</h2>
+  <p class="desc">群里 <code>/猜歌</code>（开字母）、<code>/猜曲绘</code>、<code>/猜谱面</code>；一个群同时一局，没人说话会自动结束（开字母 20 分钟、曲绘 / 谱面 8 分钟）。这里能看现在哪些群在玩、强制结束一局（局面只在内存里，重载插件也会清掉）。总开关 <code>games_enabled</code> 在插件配置里。</p>
+  <div id="games-list"></div>
+</section>
+
+<section id="s-llm">
+  <h2>自然语言开关</h2>
+  <p class="desc">打开后，这个群里 @机器人 说「帮我查一下中二 b30」之类的话会先过关键词粗筛，命中才调用大模型判断意图（每次一个短请求）。没打开的群完全不调用。</p>
+  <div class="row"><label>群号 <input type="text" id="g-id" placeholder="留空 = 私聊"></label>
+    <button id="g-on">开启</button><button class="ghost" id="g-off">关闭</button></div>
+  <div id="g-list"></div>
+</section>
+
+<section id="s-ds">
+  <h2>定数默认区服</h2>
+  <p class="desc">查歌 / 定数 / 定数表在用户没写区服时用哪个服的定数。图上会用红字标出其他服定数不同的谱面。</p>
+  <div id="ds-sel"></div>
+</section>
+
+<section id="s-nl">
+  <h2>意图测试</h2>
+  <p class="desc">看看一句话会被识别成什么指令（不勾选就只用规则，不花 token）。</p>
+  <div class="row"><input type="text" id="nl-text" style="min-width:360px" value="帮我看下舞萌日服b50">
+    <label><input type="checkbox" id="nl-llm"> 用大模型</label><button id="nl-go">识别</button></div>
+  <pre id="nl-out"></pre>
+</section>
+
+<section id="s-acc">
+  <h2>查账号</h2>
+  <p class="desc">输入 QQ 号，看他在两个游戏各绑了哪些区服、默认查哪个（不显示任何凭据）。</p>
+  <div class="row"><input type="text" id="acc-qq" placeholder="QQ 号"><button id="acc-go" class="ghost">查看</button></div>
+  <pre id="acc-out"></pre>
+</section>
+
+<section id="s-help">
+  <h2>帮助图预览</h2>
+  <p class="desc">用户发帮助指令时收到的图。图按插件版本缓存，改了素材会重画。</p>
+  <div class="row"><select id="help-topic">
+    <option value="">总览（/查分 帮助）</option><option value="mai">舞萌 DX（/mai 帮助）</option><option value="chu">中二节奏（/chu 帮助）</option>
+    <option value="geki">音击（/geki 帮助）</option><option value="sdvx">SDVX（/sdvx 帮助）</option><option value="pjsk">PJSK（/pjsk 帮助）</option><option value="chart">谱面图 sdvx.in（/谱面 帮助）</option><option value="games">小游戏（/猜歌 帮助）</option>
+    <option value="more">更多（/查分 帮助 更多）</option><option value="all">全部拼一张（/查分 帮助 全）</option></select>
+    <button id="help-go" class="ghost">生成预览</button></div>
+  <div id="help-img"></div>
+</section>
+
+<section id="s-assets">
+  <h2>素材：图标 / 版本 logo / B50 背景</h2>
+  <p class="desc">两个游戏出图用到的图片都在这里传。<b>按下面的规则给文件起名</b>，然后一次多选（或拖进来、或打成 zip）上传，插件按文件名自动放到对的位置；也可以点下面格子里的某一项单独上传 / 预览 / 删除。没有的素材出图时会用文字或纯色代替，不影响查分。</p>
+  <table id="a-rules"><tr><th style="width:150px">素材</th><th>文件名</th><th style="width:260px">例子</th></tr></table>
+  <ul class="hint" id="a-tips" style="margin:8px 0 12px; padding-left:18px"></ul>
+  <div class="drop" id="a-drop">把图片 / zip 拖到这里，或者 <b>点这里选择文件</b>（可多选）
+    <input type="file" id="a-files" multiple accept=".png,.jpg,.jpeg,.webp,.zip" style="display:none"></div>
+  <pre id="a-log" style="display:none"></pre>
+  <div id="a-panel"></div>
+  <div class="tabs" id="a-tabs"></div>
+  <div id="a-grid"></div>
+  <input type="file" id="a-one" accept=".png,.jpg,.jpeg,.webp" style="display:none">
+</section>
+
+<div class="toast" id="toast"></div>
+<script>
+window.addEventListener("unhandledrejection", (e) => { const t = document.getElementById("toast"); t.textContent = "出错：" + ((e.reason && e.reason.message) || e.reason); t.classList.add("show"); });
+(async () => {
+  for (let i = 0; i < 100 && !window.AstrBotPluginView; i++) await new Promise((r) => setTimeout(r, 50));
+  const B = window.AstrBotPluginView;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const toast = (m, bad) => { const t = $("toast"); t.textContent = m; t.style.background = bad ? "#dc2626" : ""; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3000); };
+  if (!B) { $("overview").textContent = "没有找到 AstrBot 插件页接口"; return; }
+  await B.ready();
+  const get = (ep, q) => B.apiGet("core/" + ep, q || {});
+  const post = (ep, b) => B.apiPost("core/" + ep, b || {});
+  async function load() {
+    const S = await get("status");
+    $("ver").textContent = "v" + S.version + " · " + S.bot_name;
+    const m = S.games.mai, c = S.games.chu, g = S.games.geki, ch = S.games.charts, pv = S.priv_users || {};
+    const mg = S.minigames || {sessions: []};
+    $("overview").innerHTML = `
+      <div class="stat mai"><div class="k">舞萌 DX 曲库</div><div class="v">${m.songs} 首</div><div class="s">国际服 ${esc(m.versions.intl)} · 日服 ${esc(m.versions.jp)} · 国服 ${esc(m.versions.cn)}<br>绑定用户 ${m.users}</div></div>
+      <div class="stat chu"><div class="k">中二节奏曲库</div><div class="v">${c.songs} 首</div><div class="s">国际服 ${esc(c.version)} · 日服定数 ${c.jp_consts}（${esc(c.jp_version)}）· 国服定数 ${c.cn_consts}<br>国际服绑定 ${c.intl_users} · 国服绑定 ${c.cn_users}</div></div>
+      <div class="stat geki"><div class="k">音击（私服）</div><div class="v">${g.songs} 首</div><div class="s">sdvx.in 曲目 ${g.songs} · 定数 ${g.consts}<br>私服绑定：AquaDX ${pv.aqua ?? 0} · RinNET ${pv.rin ?? 0} · MuNET ${pv.munet ?? 0}</div></div>
+      <div class="stat chart"><div class="k">谱面图（sdvx.in）</div><div class="v">${ch.chu + ch.geki + ch.sdvx + ch.pjsk} 首</div><div class="s">中二 ${ch.chu} · 音击 ${ch.geki} · SDVX ${ch.sdvx} · PJSK ${ch.pjsk}<br>本地图片 ${ch.images} 张</div></div>
+      <div class="stat mini"><div class="k">小游戏</div><div class="v">${mg.sessions.length} 局在玩</div><div class="s">总开关：${mg.enabled ? "<span class=ok>开</span>" : "<span class=bad>关</span>"}<br>猜歌 · 猜曲绘 · 猜谱面</div></div>
+      <div class="stat"><div class="k">自然语言</div><div class="v">${Object.values(S.llm_groups).filter(Boolean).length} 个群开启</div><div class="s">私聊：${S.private_llm ? "开" : "关"} · 需要 @：${S.nl.require_wake ? "是" : "否"}<br>模型：${esc(S.nl.provider)}</div></div>
+      <div class="stat"><div class="k">图片缓存</div><div class="v">${S.imgcache.mb} MB</div><div class="s">${S.imgcache.files} 张（帮助图、B50、查歌卡等）<br>换素材会自动清空</div></div>`;
+    $("games-list").innerHTML = mg.sessions.length ? `<table><tr><th>群 / 会话</th><th>玩法</th><th>游戏</th><th>范围</th><th>进度</th><th>开了多久</th><th>没人说话</th><th></th></tr>` +
+      mg.sessions.map(x => `<tr><td><code>${esc(x.origin)}</code></td><td>${esc(x.kind)}</td><td>${esc(x.game)}</td><td>${esc(x.range)}</td>
+        <td>${x.kind === "开字母" ? `猜中 ${x.solved}/${x.n}` : `提示 ${x.stage} 次`}</td><td>${x.age_min} 分钟</td><td>${x.idle_min} 分钟</td>
+        <td><button class="danger" data-origin="${esc(x.origin)}">结束</button></td></tr>`).join("") + `</table>` : `<p class="hint">现在没有群在玩。</p>`;
+    document.querySelectorAll("#games-list button").forEach(b => b.onclick = async () => { await post("game_end", {origin: b.dataset.origin}); toast("已结束"); load(); });
+    $("changelog").innerHTML = (S.changelog || []).map(e => `<details ${e === S.changelog[0] ? "open" : ""}><summary><b>${esc(e.version)}</b>${e.title ? " · " + esc(e.title) : ""}${e.date ? ` <span class="hint">${esc(e.date)}</span>` : ""}</summary><ul>${e.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul></details>`).join("") || `<p class="hint">没有找到 CHANGELOG.md</p>`;
+    const lx = S.lxns || {};
+    $("lx-state").innerHTML = lx.configured ? `<span class=ok>已配置</span>（来自${esc(lx.from)}）· 按 QQ 绑定：舞萌 ${lx.mai_qq} 人 · 中二 ${lx.chu_qq} 人`
+                                            : `<span class=bad>未配置</span>（国服只能用个人密钥或水鱼）`;
+    const oa = lx.oauth || {};
+    $("lxo-state").innerHTML = oa.configured ? `<span class=ok>已配置</span>（${esc(oa.client_id)}${oa.has_secret ? " · 有密钥" : " · 没填密钥"}）· 已授权：舞萌 ${oa.mai} 人 · 中二 ${oa.chu} 人`
+                                             : `<span class=bad>未配置</span>`;
+    $("lxo-redirect").textContent = oa.redirect || "（先在配置里填好网页绑定的公网地址 bind_web_url）";
+    $("migration").textContent = "旧插件数据迁移：" + Object.entries(S.migration).map(([g, v]) => `${g === "mai" ? "舞萌" : "中二"} ${v}`).join("；");
+    const rows = Object.entries(S.llm_groups).map(([g, on]) => `<tr><td>${esc(g)}</td><td class="${on ? "ok" : ""}">${on ? "开" : "关"}</td></tr>`).join("");
+    $("g-list").innerHTML = `<table><tr><th>群号</th><th>自然语言</th></tr><tr><td>私聊</td><td class="${S.private_llm ? "ok" : ""}">${S.private_llm ? "开" : "关"}</td></tr>${rows}</table>`;
+    $("ds-sel").innerHTML = Object.entries(S.catalog_servers).map(([g, list]) => `<div class="row"><b style="width:90px">${g === "mai" ? "舞萌 DX" : "中二节奏"}</b>
+      <select data-game="${g}" class="ds">${list.map(s => `<option value="${s.key}" ${S.catalog_server[g] === s.key ? "selected" : ""}>${s.name}</option>`).join("")}</select></div>`).join("");
+    document.querySelectorAll(".ds").forEach(sel => sel.onchange = async () => { await post("catalog_server", {game: sel.dataset.game, server: sel.value}); toast("已保存"); });
+  }
+  const setLlm = async (on) => { await post("llm", {group: $("g-id").value.trim(), on}); toast(on ? "已开启" : "已关闭"); load(); };
+  $("g-on").onclick = () => setLlm(true);
+  $("g-off").onclick = () => setLlm(false);
+  $("nl-go").onclick = async () => { const r = await post("nl", {text: $("nl-text").value, llm: $("nl-llm").checked}); $("nl-out").textContent = JSON.stringify(r, null, 2); };
+  $("acc-go").onclick = async () => { const r = await post("accounts", {qq: $("acc-qq").value.trim()}); $("acc-out").textContent = r.text; };
+  $("help-go").onclick = async () => { $("help-img").textContent = "生成中…"; const r = await get("help", {topic: $("help-topic").value}); $("help-img").innerHTML = `<img src="${r.image}" style="max-width:100%;border-radius:12px">`; };
+
+  // ---------- 素材 ----------
+  let A = null, game = "mai", sel = null;
+  const kb = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+  async function loadAssets() {
+    A = await get("assets");
+    $("a-rules").innerHTML = `<tr><th style="width:150px">素材</th><th>文件名</th><th style="width:260px">例子</th></tr>` +
+      A.rules.map(r => `<tr><td>${esc(r.what)}</td><td><code>${esc(r.pattern)}</code></td><td><code>${esc(r.example)}</code></td></tr>`).join("");
+    $("a-tips").innerHTML = A.tips.map(t => `<li>${esc(t)}</li>`).join("");
+    drawAssets();
+  }
+  function drawAssets() {
+    const tot = (g) => A.groups.filter(x => x.game === g).reduce((a, x) => [a[0] + x.have, a[1] + x.total], [0, 0]);
+    const [mh, mt] = tot("mai"), [ch, ct] = tot("chu");
+    $("a-tabs").innerHTML = `<button data-g="mai" class="${game === "mai" ? "" : "off"}">舞萌 DX（${mh}/${mt}）</button>` +
+      `<button data-g="chu" class="${game === "chu" ? "" : "off"}">中二节奏（${ch}/${ct}）</button>`;
+    document.querySelectorAll("#a-tabs button").forEach(b => b.onclick = () => { game = b.dataset.g; sel = null; $("a-panel").style.display = "none"; drawAssets(); });
+    let html = A.groups.filter(x => x.game === game).map(g => `<div class="agroup">${esc(g.group)}<span>${g.have}/${g.total}</span></div><div class="slots">` +
+      g.items.map(it => `<div class="slot ${it.exists ? "have" : "miss"} ${sel && sel.key === it.key ? "sel" : ""}" data-key="${esc(it.key)}" data-rel="${esc(it.rel)}" data-label="${esc(it.label)}" data-exists="${it.exists ? 1 : ""}">
+        <b>${esc(it.label)}</b><code>${esc(it.key)}.png</code>${it.exists ? `<div class="hint ok">✓ ${kb(it.size)}</div>` : `<div class="hint">未上传</div>`}</div>`).join("") + `</div>`).join("");
+    if (game === "mai") html += `<p class="hint" style="margin-top:12px">另外：本机曲绘 ${A.extras.mai_jacket} 张（<code>mai_jacket_&lt;ID&gt;.png</code>），背景装饰贴纸 ${A.extras.mai_deco} 张（<code>mai_deco_&lt;名字&gt;.png</code>），这两类数量多，直接按规则批量上传即可。</p>`;
+    $("a-grid").innerHTML = html;
+    document.querySelectorAll(".slot").forEach(el => el.onclick = () => openSlot(el.dataset));
+  }
+  async function openSlot(d) {
+    sel = {key: d.key, rel: d.rel}; drawAssets();
+    const P = $("a-panel"); P.style.display = "block";
+    P.innerHTML = `<b>${esc(d.label)}</b> <span class="hint">文件名 <code>${esc(d.key)}.png</code> · 存放位置 <code>${esc(d.rel)}</code></span>
+      <div id="a-thumb" class="hint">${d.exists ? "加载预览…" : "还没有这张图"}</div>
+      <button id="a-up">${d.exists ? "替换" : "上传"}</button>${d.exists ? `<button class="danger" id="a-del">删除</button>` : ""}<button class="ghost" id="a-close">收起</button>`;
+    $("a-up").onclick = () => $("a-one").click();
+    $("a-close").onclick = () => { P.style.display = "none"; sel = null; drawAssets(); };
+    if (d.exists) {
+      $("a-del").onclick = async () => { if (!confirm(`删除 ${d.rel}？`)) return; await post("assets/delete", {rel: d.rel}); toast("已删除"); P.style.display = "none"; sel = null; loadAssets(); };
+      try { const t = await get("assets/thumb", {rel: d.rel}); $("a-thumb").innerHTML = `<img src="${t.image}"><span>${t.size.join("×")} 像素</span>`; }
+      catch (e) { $("a-thumb").textContent = "预览失败：" + (e.message || e); }
+    }
+  }
+  $("a-one").onchange = async () => {
+    const f = $("a-one").files[0]; $("a-one").value = ""; if (!f || !sel) return;
+    try { const r = await B.upload(`core/assets/upload/${sel.key}`, f); toast(`已保存 ${r.saved}（${r.size.join("×")}）`); }
+    catch (e) { toast(e.message || String(e), true); }
+    await loadAssets(); const el = document.querySelector(`.slot[data-key="${sel.key}"]`); if (el) openSlot(el.dataset);
+  };
+  async function uploadMany(files) {
+    const log = $("a-log"); log.style.display = "block"; log.textContent = "";
+    let ok = 0, bad = 0;
+    for (const f of files) {
+      try {
+        const r = await B.upload("core/assets/upload/auto", f);
+        ok++; log.textContent += `✓ ${f.name} → ${r.saved}${r.skipped && r.skipped.length ? `\n   跳过：${r.skipped.join("、")}` : ""}\n`;
+      } catch (e) { bad++; log.textContent += `✗ ${f.name}：${e.message || e}\n`; }
+      log.scrollTop = log.scrollHeight;
+    }
+    log.textContent += `\n完成：成功 ${ok}，失败 ${bad}`;
+    toast(`上传完成：成功 ${ok}${bad ? "，失败 " + bad : ""}`, bad && !ok);
+    loadAssets();
+  }
+  const drop = $("a-drop");
+  drop.onclick = (e) => { if (e.target.id !== "a-files") $("a-files").click(); };
+  $("a-files").onchange = () => { const fs = [...$("a-files").files]; $("a-files").value = ""; if (fs.length) uploadMany(fs); };
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); const fs = [...e.dataTransfer.files]; if (fs.length) uploadMany(fs); };
+  $("lx-save").onclick = async () => {
+    const t = $("lx-input").value.trim();
+    if (!t) return toast("先粘贴令牌");
+    $("lx-save").disabled = true;
+    try { const r = await post("lx_token", {token: t}); if (!r || !r.configured) throw new Error("令牌无效或保存失败"); $("lx-input").value = ""; toast("已保存，按 QQ 查国服已开启"); load(); }
+    catch (e) { toast("没保存：" + (e.message || e), true); }
+    finally { $("lx-save").disabled = false; }
+  };
+  $("lx-clear").onclick = async () => { if (!confirm("清除落雪开发者令牌？按 QQ 查会停用（已绑的人也查不了）")) return; await post("lx_token", {clear: true}); toast("已清除"); load(); };
+  $("lxo-save").onclick = async () => {
+    const id = $("lxo-id").value.trim(), sec = $("lxo-secret").value.trim();
+    if (!id) return toast("先填应用 ID");
+    try { const r = await post("lx_oauth", {client_id: id, client_secret: sec}); if (!r || !r.oauth || !r.oauth.configured) throw new Error("保存失败");
+          $("lxo-secret").value = ""; toast("已保存，网页绑定里会出现「落雪授权」"); load(); }
+    catch (e) { toast("没保存：" + (e.message || e), true); }
+  };
+  $("lxo-clear").onclick = async () => { if (!confirm("清除落雪 OAuth 应用？已授权的人会查不了，直到重新配置")) return; await post("lx_oauth", {clear: true}); toast("已清除"); load(); };
+  await load();
+  loadAssets().catch(e => { $("a-grid").textContent = "素材列表加载失败：" + (e.message || e); });
+})();
+</script>
+</body>
+</html>
