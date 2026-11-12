@@ -304,6 +304,7 @@ class SdvxIn:
         self._net = asyncio.Semaphore(2)
         self._search: dict[str, object] = {}
         self.aliases: dict[str, dict[str, list[str]]] = self._load_aliases()
+        self.shared: dict[str, dict[str, list[str]]] = {}     # 共享外号库里按 sdvx.in 编号的部分（不存盘、不导出）
         self._last_fail: dict[str, float] = {}       # list refresh failed → don't hammer sdvx.in on every query
         self._miss: dict[str, float] = {}            # chart / jacket known to be absent (negative cache)
 
@@ -546,6 +547,10 @@ class SdvxIn:
         self._search.pop(game, None)
         return True
 
+    def set_shared(self, table: dict[str, dict[str, list[str]]]) -> None:
+        self.shared = {g: dict(v) for g, v in (table or {}).items()}
+        self._search.clear()
+
     def index(self, game: str):
         try:
             from ..mai.data.fuzzy import FuzzyIndex
@@ -555,9 +560,10 @@ class SdvxIn:
         if idx is None:
             idx = FuzzyIndex()
             local = self.aliases.get(game) or {}
+            shared = self.shared.get(game) or {}
             for sid, e in self.entries[game].items():
                 names = [e.raw.get("title_search_hira") or "", e.raw.get("title_search_abc") or "", sid,
-                         *local.get(sid, [])]
+                         *local.get(sid, []), *shared.get(sid, [])]
                 idx.add(sid, e, e.title, [n for n in names if n])
             self._search[game] = idx
         return idx

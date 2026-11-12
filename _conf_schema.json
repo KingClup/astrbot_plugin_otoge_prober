@@ -77,6 +77,30 @@
     "type": "int",
     "default": 0
   },
+  "alias_share_download": {
+    "description": "共享外号库 · 下载：每天从汇总点拉一次别的 bot 收的外号，合进搜索（排在本机外号后面）",
+    "type": "bool",
+    "default": true,
+    "hint": "关掉就只用本机外号和落雪 / Yuzuchan 的别名库"
+  },
+  "alias_share_upload": {
+    "description": "共享外号库 · 上报：把本机收的外号（加别名 + 猜歌投票通过的）发给汇总点，分享给别的 bot",
+    "type": "bool",
+    "default": true,
+    "hint": "只发 游戏 / 曲目编号 / 歌名 / 外号，不带 QQ 号、群号、谁加的；不想分享就关掉"
+  },
+  "alias_share_url": {
+    "description": "共享外号库 · 汇总点地址（留空 = 插件作者的汇总点）",
+    "type": "string",
+    "default": "",
+    "hint": "自己另起一个汇总点的话填它的网址，比如 https://bind.example.com"
+  },
+  "alias_hub_enabled": {
+    "description": "共享外号库 · 把这个 bot 当汇总点（要先配好网页绑定的公网地址）",
+    "type": "bool",
+    "default": false,
+    "hint": "一般不用开。开了以后别的 bot 把汇总点地址填成你的网页绑定网址；主人用「/查分 共享别名 待定 / 通过 / 删」管理"
+  },
   "nl_rules_first": {
     "description": "意图识别省 token：规则能拿准的句子（舞萌b50、X是什么歌…）不再问大模型，只有规则拿不准且像在提问时才问",
     "type": "bool",

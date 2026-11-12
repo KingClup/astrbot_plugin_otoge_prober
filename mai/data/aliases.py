@@ -80,6 +80,7 @@ class AliasStore:
         self.maps: dict[str, dict[int, list[str]]] = {}
         self.fetched_at = 0.0
         self.status: dict[str, str] = {}
+        self.shared: dict[int, list[str]] = {}      # 共享外号库（core.aliasshare）里这个游戏的部分；不写进本机库
         self.load()
 
     # ---------- files ----------
@@ -136,7 +137,7 @@ class AliasStore:
         loc: dict[int, list[str]] = {}
         for a, sid in self.local().items():
             loc.setdefault(sid, []).append(a)
-        return merge(loc, *(self.maps.get(s, {}) for s in SOURCES[self.game]))
+        return merge(loc, self.shared, *(self.maps.get(s, {}) for s in SOURCES[self.game]))
 
     def count(self) -> int:
         return sum(len(v) for v in self.merged().values())

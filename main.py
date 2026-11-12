@@ -45,6 +45,7 @@ from .games.sources import GameData  # noqa: E402
 from .games import aliasvote as AV  # noqa: E402
 from .games.invite import InviteWatcher, clamp_settings as invite_settings  # noqa: E402
 from .core import aliaslib as AL  # noqa: E402
+from .core import aliasshare as AS  # noqa: E402
 from .mai.data.fuzzy import alias_pick, decide  # noqa: E402
 from .core.prefs import GAME_NAMES, SERVER_NAMES, Prefs  # noqa: E402
 from .mai.calc.sample import THEORY_WORDS  # noqa: E402
@@ -74,7 +75,7 @@ from .core.privsrv import Hub as PrivHub, NAMES as PRIV_NAMES  # noqa: E402
 from .core.privsrv.servers import rom_label  # noqa: E402
 
 PLUGIN = "astrbot_plugin_otoge_prober"
-VERSION = "2.4.5"
+VERSION = "2.5.0"
 MAI_NAMES = ("mai", "maimai", "舞萌")
 CHU_NAMES = ("chu", "chuni", "中二")
 CORE_NAMES = ("查分", "score", "otoge")
@@ -409,8 +410,9 @@ class OtogeScore(Star):
             logger.warning(f"[otoge] 网页绑定端口 {port} 是 AstrBot 自己在用的，改用 {BIND_WEB_PORT}")
             port = BIND_WEB_PORT
         self.scoreweb = ScoreWeb(self.scorebook, bot_name=self.bot_name, log=logger.info)
+        self.shareweb = AS.ShareWeb(self._share_hub, log=logger.info)
         return BindWeb(Binder(self), host="127.0.0.1", port=port, bot_name=self.bot_name,
-                       notify=self._notify_private, log=logger.info, extra=[self.scoreweb])
+                       notify=self._notify_private, log=logger.info, extra=[self.scoreweb, self.shareweb])
 
     async def _bindweb_start(self) -> None:
         if await self.bindweb.start():
@@ -1420,6 +1422,145 @@ class OtogeScore(Star):
             return resp.completion_text or ""
         return call
 
+    # ---------- 共享外号库（core.aliasshare） ----------
+    def _share_root(self) -> str:
+        return os.path.join(self.root, "alias_share")
+
+    def _share_hub(self):
+        """这个 bot 当汇总点时的 Hub（配置 alias_hub_enabled）；没开返回 None。"""
+        if not self._cfg("alias_hub_enabled", AS.HUB_DEFAULT):
+            return None
+        if getattr(self, "_hub_obj", None) is None:
+            self._hub_obj = AS.Hub(self._share_root())
+        return self._hub_obj
+
+    def _share_url(self) -> str:
+        return str(self._cfg("alias_share_url", "") or AS.DEFAULT_HUB).strip().rstrip("/")
+
+    def _share_apply(self, pack: dict | None) -> int:
+        """把共享库合进搜索（排在本机外号后面）。不写进本机别名库。返回条数。"""
+        on = bool(self._cfg("alias_share_download", True))
+        mai, chu, sx = AS.split_pack(pack if on else None)
+        try:
+            self.mai_aliases.shared = mai
+            self.catalog.set_aliases(self.mai_aliases.merged())
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] 共享外号（舞萌）没合上：{type(e).__name__}: {e}")
+        try:
+            self.chu_aliases.shared = chu
+            self.chu_svc.songdb.apply_aliases(self.chu_aliases.merged())
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] 共享外号（中二）没合上：{type(e).__name__}: {e}")
+        try:
+            self.charts.src.set_shared(sx)
+            self.scorebook.sync_aliases()
+            self.games.data._cache.clear()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] 共享外号（sdvx.in）没合上：{type(e).__name__}: {e}")
+        n = sum(len(v) for v in mai.values()) + sum(len(v) for v in chu.values()) \
+            + sum(len(a) for t in sx.values() for a in t.values())
+        self._share_state = {**getattr(self, "_share_state", {}), "merged": n}
+        return n
+
+    async def _share_sync(self) -> str:
+        """上报本机外号 + 拉共享库 + 合进搜索。返回一句话结果。"""
+        st = self._share_state = dict(getattr(self, "_share_state", {}))
+        up_on, down_on = bool(self._cfg("alias_share_upload", True)), bool(self._cfg("alias_share_download", True))
+        proxy = self._cfg("proxy", "") or None
+        notes = []
+        items = AS.items_from_lib(await asyncio.to_thread(AL.collect, self)) if up_on else []
+        hub = self._share_hub()
+        if hub is not None:                      # 汇总点自己：不走网络，自己的外号直接算通过
+            if items:
+                out = await asyncio.to_thread(hub.submit, AS.bot_id(self._share_root()), "local", items, True)
+                notes.append(f"本机 {len(items)} 条进了共享库（新 {out['new']}）")
+            pack = hub.pack()
+        else:
+            url = self._share_url()
+            if up_on and items:
+                try:
+                    out = await asyncio.wait_for(AS.upload(url, AS.bot_id(self._share_root()), items, proxy, VERSION), 45)
+                    notes.append(f"上报 {len(items)} 条（新 {out.get('new', 0)}）")
+                except Exception as e:  # noqa: BLE001
+                    notes.append(f"上报失败（{type(e).__name__}）")
+            pack = None
+            if down_on:
+                try:
+                    pack = await asyncio.wait_for(AS.download(url, proxy), 45)
+                    await asyncio.to_thread(AS.save_pack, self._share_root(), pack)
+                except Exception as e:  # noqa: BLE001
+                    notes.append(f"下载失败（{type(e).__name__}），先用上次的")
+                    pack = AS.load_pack(self._share_root())
+        n = self._share_apply(pack)
+        st = self._share_state
+        st["at"] = time.time()
+        if down_on:
+            notes.append(f"共享库合进来 {n} 条")
+        st["note"] = "，".join(notes) or "上报、下载都关着"
+        logger.info(f"[otoge] 共享外号：{st['note']}")
+        return st["note"]
+
+    async def _share_cmd(self, event, args: list[str]) -> Reply:
+        """/查分 共享别名 [同步 | 待定 | 通过 序号… | 删 外号]"""
+        sub = args[0] if args else ""
+        owner = self._is_owner(event)
+        hub = self._share_hub()
+        if sub in ("同步", "sync", "刷新"):
+            if not owner:
+                return Reply().say("同步要机器人主人来发")
+            return Reply().say("共享外号库：" + await self._share_sync())
+        if sub and hub is None:
+            return Reply().say("这个 bot 不是汇总点，只有「/查分 共享别名」和「/查分 共享别名 同步」")
+        if sub and not owner:
+            return Reply().say("这个要机器人主人来发")
+        names = {"mai": "舞萌", "chu": "中二", "geki": "音击", "sdvx": "SDVX", "pjsk": "PJSK"}
+        if sub in ("待定", "pending", "审核"):
+            pend = hub.pending()
+            self._share_pend = [k for k, _ in pend[:30]]
+            if not pend:
+                return Reply().say("没有待定的外号")
+            lines = [f"待定 {len(pend)} 条（只有一个来源报过），先列 {len(self._share_pend)} 条："]
+            lines += [f"{i + 1}. [{names[it['g']]}] {it['t']} ← {it['a']}（{len(it.get('b') or {})} 个 bot）"
+                      for i, (_, it) in enumerate(pend[:30])]
+            lines.append("发「/查分 共享别名 通过 1 3 5」或「通过 全部」；不要的发「/查分 共享别名 删 外号」")
+            return Reply().say("\n".join(lines))
+        if sub in ("通过", "ok", "收"):
+            pend = getattr(self, "_share_pend", [])
+            if not pend:
+                return Reply().say("先发「/查分 共享别名 待定」看列表")
+            if len(args) > 1 and args[1] in ("全部", "all", "全"):
+                keys = list(pend)
+            else:
+                keys = [pend[int(x) - 1] for x in args[1:] if x.isdigit() and 0 < int(x) <= len(pend)]
+            if not keys:
+                return Reply().say("写上序号：/查分 共享别名 通过 1 3 5")
+            n = hub.mark(keys, "ok")
+            self._share_pend = []
+            self._share_apply(hub.pack())
+            return Reply().say(f"通过了 {n} 条，共享库现在 {hub.count()} 条")
+        if sub in ("删", "删除", "del", "block", "拉黑"):
+            word = " ".join(args[1:]).strip()
+            keys = hub.find(word) if word else []
+            if not keys:
+                return Reply().say("没找到。写外号（要整条一样）或者歌名：/查分 共享别名 删 外号")
+            n = hub.mark(keys, "block")
+            self._share_apply(hub.pack())
+            return Reply().say(f"删了 {n} 条（以后别的 bot 再报这条也不收），共享库现在 {hub.count()} 条")
+        st = getattr(self, "_share_state", {})
+        on = lambda k: "开" if self._cfg(k, True) else "关"  # noqa: E731
+        lines = [f"共享外号库：上报 {on('alias_share_upload')} · 下载 {on('alias_share_download')}",
+                 f"现在合进搜索的共享外号 {st.get('merged', 0)} 条（排在本机外号后面）"]
+        if st.get("at"):
+            lines.append(f"上次同步 {dt.datetime.fromtimestamp(st['at']).strftime('%m-%d %H:%M')}：{st.get('note', '')}")
+        if hub is not None:
+            hs = hub.stats()
+            lines.append(f"本 bot 是汇总点：共享库 {hs['shared']} 条 · 待定 {hs['pending']} 条 · 删掉 {hs['blocked']} 条 · 来过 {hs['bots']} 个 bot")
+            if owner:
+                lines.append("主人：/查分 共享别名 待定 · 通过 序号 · 删 外号 · 同步")
+        else:
+            lines.append("只发 游戏 / 曲目编号 / 歌名 / 外号，不带 QQ 号和群号；开关在插件配置里。")
+        return Reply().say("\n".join(lines))
+
     def alias_library(self) -> dict[str, int]:
         """本机别名按游戏导出到 alias_library/（mai/chu/geki/sdvx/pjsk.json + README.md）。"""
         try:
@@ -1760,6 +1901,8 @@ class OtogeScore(Star):
             return r
         if sub in ("账号", "我的账号", "account", "绑定"):
             return Reply().say(self.accounts_text(ctx.uid))
+        if sub in ("共享别名", "共享外号", "共享别名库", "共享外号库", "share"):
+            return await self._share_cmd(event, args[1:])
         if sub in ("别名库", "外号库", "aliases", "别名导出"):
             counts = await asyncio.to_thread(self.alias_library)
             names = {"mai": "舞萌", "chu": "中二", "geki": "音击", "sdvx": "SDVX", "pjsk": "PJSK"}
@@ -2118,6 +2261,10 @@ class OtogeScore(Star):
         await asyncio.sleep(5)
         await self._refresh_aliases()
         try:
+            self._share_apply(AS.load_pack(self._share_root()))      # 先用上次存的共享库，联网的放后面
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] 共享外号加载出错：{type(e).__name__}: {e}")
+        try:
             await self.catalog.refresh(max_age_hours=self.STARTUP_MAX_AGE_H)
             logger.info(f"[otoge] mai catalog ready from {self.catalog.source}")
         except Exception as e:  # noqa: BLE001
@@ -2126,6 +2273,10 @@ class OtogeScore(Star):
             await self._progress_check(max_age_hours=self.STARTUP_MAX_AGE_H)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[otoge] 版本进度核实失败：{e}")
+        try:
+            await self._share_sync()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] 共享外号同步出错：{type(e).__name__}: {e}")
         hour = int(self._cfg("daily_refresh_hour", 12))
         while True:
             now = dt.datetime.now()
@@ -2138,6 +2289,7 @@ class OtogeScore(Star):
             try:
                 await self._refresh_aliases(force=True)
                 await self._refresh_all_data()
+                await self._share_sync()
             except Exception as e:  # noqa: BLE001   任何一次失败都不能让每日刷新循环停掉
                 logger.warning(f"[otoge] 每日刷新出错：{type(e).__name__}: {e}")
 

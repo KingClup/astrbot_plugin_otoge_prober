@@ -281,11 +281,12 @@ class ScoreBook:
         merged: dict[str, list[str]] = {k: list(v) for k, v in self.aliases.get(game).items()}
         src = self.sdvxin
         table = ((getattr(src, "aliases", None) or {}).get(game) or {}) if src is not None else {}
-        if table:
+        shared = ((getattr(src, "shared", None) or {}).get(game) or {}) if src is not None else {}
+        if table or shared:
             m = self._sdvxin_map(game)
             for k, s in cat.songs.items():
                 sid = m.get(fold(s.title))
-                for a in table.get(sid, []) if sid else []:
+                for a in [*table.get(sid, []), *shared.get(sid, [])] if sid else []:
                     lst = merged.setdefault(k, [])
                     if a not in lst:
                         lst.append(a)
