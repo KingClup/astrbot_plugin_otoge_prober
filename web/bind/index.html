@@ -5,55 +5,97 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#f6f3f8" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#16141a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfcfe" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1626" media="(prefers-color-scheme: dark)">
 <title>{{BOT}} · 绑定查分账号</title>
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<main class="wrap">
+<div class="intro" id="intro">
+  <div class="intro-in">
+    <div class="bar"><span class="brand">{{BOT}} 音游查分</span></div>
+    <div class="rule" aria-hidden="true"><i></i><i></i></div>
+    <div class="stage">
+      <div class="arch" aria-hidden="true"></div>
+      <img class="girl" src="/img/yume-hello.webp" alt="" width="640" height="782" decoding="async">
+      <p class="hello" aria-hidden="true">来绑定<br>账号吧</p>
+      <p class="hello-sub">这条链接<br>只给你一个人用。</p>
+    </div>
+    <div class="pass">
+      <svg class="bow" aria-hidden="true" width="44" height="30" viewBox="0 0 44 30"><path class="bow-wing" d="M2 4 Q10 1 19 13 L19 17 Q10 29 2 26 Q6 15 2 4Z M42 4 Q34 1 25 13 L25 17 Q34 29 42 26 Q38 15 42 4Z"/><path class="bow-gem" d="M22 20.5 C17.5 17 16.5 14.2 17.6 12.4 C18.7 10.7 21 10.9 22 12.7 C23 10.9 25.3 10.7 26.4 12.4 C27.5 14.2 26.5 17 22 20.5Z"/></svg>
+      <div class="pass-title">绑定通行证</div>
+      <div class="pass-grid">
+        <div><span class="k">持有人 QQ</span><span class="v num" id="passQQ">…</span></div>
+        <div><span class="k">这次要绑</span><span class="v" id="passGame">进去再选</span></div>
+      </div>
+      <div class="pass-cut" aria-hidden="true"></div>
+      <div class="pass-time"><span class="k">有效期还剩</span><span class="big num js-left">-:--</span></div>
+    </div>
+    <div class="intro-go">
+      <button type="button" class="go" id="enter" disabled>正在核对链接</button>
+      <p class="auto" id="autoNote">&nbsp;</p>
+    </div>
+  </div>
+</div>
+
+<main class="wrap" id="main" hidden>
   <header class="top">
-    <div class="brand"><span class="dot"></span>{{BOT}} · 音游查分</div>
+    <div class="bar"><span class="brand">{{BOT}} 音游查分</span><span class="remain" id="remain" hidden>链接剩 <span class="num js-left"></span></span></div>
+    <div class="rule" aria-hidden="true"><i></i><i></i></div>
     <h1>绑定账号</h1>
     <p class="who" id="who">正在打开…</p>
   </header>
 
-  <section class="card notice" id="expired" hidden>
+  <section class="notice" id="expired" hidden>
+    <img class="notice-girl" src="/img/yume-gone.webp" alt="" width="560" height="452" loading="lazy" decoding="async">
     <h2 id="expiredTitle">链接已失效</h2>
     <p id="expiredWhy">链接 10 分钟内有效，而且只认最新的一条。</p>
     <p>在群里或私聊发 <code>/网页绑定</code> 重新要一个。</p>
   </section>
 
+  <section class="notice confirm" id="confirm" hidden>
+    <img class="notice-girl" src="/img/yume-shh.webp" alt="" width="520" height="386" decoding="async">
+    <h2>先确认是你本人</h2>
+    <p>这条链接是在群里发的，谁都点得开。在 QQ 里把下面这句发给 {{BOT}}（群里、私聊都行），这个页面就能往下填：</p>
+    <button type="button" class="confirm-copy" id="confirmCopy"><span class="confirm-cmd">/网页绑定 确认 <b id="confirmCode">----</b></span><span class="confirm-tip" id="confirmTip">点一下复制</span></button>
+    <p class="confirm-wait" id="confirmWait">等你在 QQ 回确认码…</p>
+    <button type="button" class="ghost" id="confirmCheck">我回过了，看看好了没</button>
+    <p class="confirm-small">只确认你自己屏幕上看到的码。要是页面被关掉了，用同一个浏览器再点一次那条链接，码不变。</p>
+  </section>
+
   <div id="app" hidden>
-    <section class="card" id="boundCard">
-      <h2>已绑定</h2>
+    <section class="bound" id="boundCard">
+      <h2>已经绑好的</h2>
       <div class="chips" id="bound"></div>
     </section>
 
-    <section class="card">
-      <h2><span class="n">1</span>游戏</h2>
+    <div class="steps">
+    <section class="step">
+      <h2><span class="n">一</span>游戏</h2>
       <div class="games" role="radiogroup" aria-label="游戏">
         <button type="button" class="game mai" data-game="mai" role="radio" aria-checked="false">
           <b>舞萌 DX</b><small>maimai DX</small></button>
         <button type="button" class="game chu" data-game="chu" role="radio" aria-checked="false">
           <b>中二节奏</b><small>CHUNITHM</small></button>
         <button type="button" class="game geki" data-game="geki" role="radio" aria-checked="false">
-          <b>音击</b><small>ONGEKI · 只有私服</small></button>
+          <b>音击</b><small>ONGEKI · 官服 / 私服</small></button>
+        <button type="button" class="game sdvx" data-game="sdvx" role="radio" aria-checked="false">
+          <b>SDVX</b><small>SOUND VOLTEX</small></button>
       </div>
     </section>
 
-    <section class="card" id="serverCard" hidden>
-      <h2><span class="n">2</span>区服</h2>
+    <section class="step" id="serverCard" hidden>
+      <h2><span class="n">二</span>区服</h2>
       <div class="seg" id="servers" role="radiogroup" aria-label="区服"></div>
     </section>
 
-    <section class="card" id="methodCard" hidden>
-      <h2><span class="n">3</span>绑定方式</h2>
+    <section class="step" id="methodCard" hidden>
+      <h2><span class="n">三</span>绑定方式</h2>
       <div class="methods" id="methods" role="radiogroup" aria-label="绑定方式"></div>
     </section>
 
-    <form class="card" id="form" hidden autocomplete="off" novalidate>
-      <h2><span class="n">4</span><span id="formTitle">填写</span></h2>
+    <form class="step" id="form" hidden autocomplete="off" novalidate>
+      <h2><span class="n">四</span><span id="formTitle">填写</span></h2>
 
       <div class="field" data-for="clal">
         <label for="clal">clal</label>
@@ -147,17 +189,29 @@
         </details>
       </div>
 
+      <div class="field" data-for="scores">
+        <p class="tip" id="scoresTip">官服的成绩网站要开付费会员才看得到成绩，{{BOT}} 读不到，所以没有「绑定」这一步：
+          成绩在<strong>传分网站</strong>手动传（只升不降，能一首首点、也能批量贴；截图可以先让 ChatGPT / Claude / Gemini / Grok / DeepSeek 认好格式）。
+          点下面的按钮直接进去，已经用这个绑定链接的身份登录好了，30 天内再打开不用登录。</p>
+        <p class="tip">QQ 里也能传：<code>/传分</code> 拿链接，<code>/传 歌 难度 分数</code> 传一条，<code>/批量传</code> 换行一行一首。</p>
+        <img class="field-girl" src="/img/yume-pass.webp" alt="" width="520" height="385" loading="lazy" decoding="async">
+      </div>
+
       <div class="consent" id="consent">
         <pre id="consentText"></pre>
         <label class="check"><input type="checkbox" id="agree"><span>我看完了，同意</span></label>
       </div>
 
       <button type="submit" class="go" id="go">绑定</button>
+      <img class="result-girl" id="resultGirl" src="/img/yume-ok.webp" alt="" width="520" height="388" loading="lazy" decoding="async" hidden>
       <div class="result" id="result" role="status" aria-live="polite" hidden></div>
     </form>
+    <svg class="knot" aria-hidden="true" width="26" height="18" viewBox="0 0 26 18"><path class="knot-wing" d="M1 3 L11 9 L1 15Z M25 3 L15 9 L25 15Z"/><rect class="knot-mid" x="10.5" y="6" width="5" height="6" rx="1"/></svg>
+    </div>
 
     <footer class="foot">
       <p>凭据走 HTTPS 直接交给 {{BOT}}，加密保存，不会出现在聊天记录里，也不会交给 AI。</p>
+      <p>SDVX / 音击官服没法自动查分：上面选 SDVX 或「音击 → 官服」进 <a href="/scores">传分网站</a> 手动传（QQ 里发 <code>/传分</code> 也行）。</p>
       <p>不想用了：发 <code>/mai 解绑</code> 或 <code>/chu 解绑</code>；私服发 <code>/mai 解绑 aqua</code> 这样带上私服名（舞萌、中二、音击一起解）。</p>
     </footer>
   </div>

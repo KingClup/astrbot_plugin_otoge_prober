@@ -1,9 +1,9 @@
 name: astrbot_plugin_otoge_prober
 display_name: 音游查分器 Otoge Prober
-short_desc: "舞萌 DX / 中二节奏 国际服 / 日服 / 国服 / 私服 + 音击私服：B50 图、查歌、定数表、sdvx.in 谱面"
+short_desc: "舞萌 DX / 中二节奏 国际服 / 日服 / 国服 / 私服 + 音击私服 + SDVX / 音击录分网站：B50 / VF 50 图、查歌、定数表、sdvx.in 谱面"
 desc: 舞萌 DX（国际服 / 日服 NET、国服水鱼 / 落雪）、中二节奏（国际服 / 日服 NET、国服水鱼 / 落雪）和音击（私服 AquaDX）查分：B50 图片、带曲绘的查歌卡 / 定数查歌 / 定数表（各服定数对照）、外号 + 模糊查歌、多账号多区服、sdvx.in 谱面查询（中二 / 音击 / SDVX / PJSK）、群里猜歌小游戏（开字母 / 猜曲绘 / 猜谱面）、容错指令、分主题的图片帮助、按群开关的自然语言查分、WebUI 管理页
 author: KingClup & Claude (vibe coding)
-version: v2.0.0
+version: v2.4.5
 astrbot_version: ">=4.29.4,<5"
 support_platforms:
   - aiocqhttp

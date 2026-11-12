@@ -2,6 +2,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
-# AstrBot 跑测试时会在插件目录写出这些
-data/
+# AstrBot 跑测试时会在插件根目录写出 data/（只忽略根目录这个；mai/data、ongeki/data 是插件自己的数据，要进仓库）
+/data/
 .DS_Store

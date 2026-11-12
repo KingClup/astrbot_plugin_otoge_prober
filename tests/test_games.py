@@ -382,3 +382,46 @@ def test_fuzzy_fold_kanji():
     from mai.data.fuzzy import fold
     assert fold("回归") == fold("回帰") == fold("回歸")
     assert fold("悪戯") == fold("恶戏")
+
+
+def test_chart_region_passed_through():
+    gc = GameCommands(FakeData(), rnd=random.Random(7))
+    seen = []
+    orig = gc.data.chart_songs
+
+    def cs(game, region="jp"):
+        seen.append(region)
+        return orig(game)
+    gc.data.chart_songs = cs
+    run(gc.handle("cr", Ctx(), "/猜谱面 中二 14+ 国服", command=True))
+    assert seen == ["cn"]
+    gc.sessions.clear(); seen.clear()  # noqa: E702
+    run(gc.handle("cr", Ctx(), "/猜谱面 音击 国服", command=True))
+    assert seen == ["jp"]                               # 音击没有区服：照常
+
+
+def test_letter_hint_per_song():
+    from games import core as G
+    gc = GameCommands(FakeData(), rnd=random.Random(3))
+    run(gc.handle("lh", Ctx(), "/猜歌 舞萌", command=True))
+    s = gc.sessions["lh"]
+    s.picks[5].song.version = "X-VERSE"
+    before = {i: G.mask(p.song.title, s.opened) for i, p in enumerate(s.picks)}
+    r = run(gc.handle("lh", Ctx(uid="1"), "6. 提示", command=False))
+    assert "第 6 首提示：版本：X-VERSE，开了一个" in r.texts[0]
+    assert len(s.shown(5)) == 1
+    assert all(G.mask(p.song.title, s.opened, s.shown(i)) == before[i] for i, p in enumerate(s.picks) if i != 5)
+    assert "（X-VERSE）" in s.letters_board()
+    assert not run(gc.handle("lh", Ctx(uid="2"), "提示 6", command=False)).texts      # 3 秒防抖
+    s.data["last_hint_i"][5] -= 5
+    r = run(gc.handle("lh", Ctx(uid="2"), "6提示", command=False))
+    assert "版本" not in r.texts[0] and len(s.shown(5)) == 2                         # 第二次只开字
+    assert "只有" in run(gc.handle("lh", Ctx(), "12 提示", command=False)).texts[0]
+    assert "第几首" in run(gc.handle("lh", Ctx(), "提示", command=False)).texts[0]
+    # 开到只剩一个字就不给了
+    title = s.picks[5].song.title
+    s.hinted[5] = set(G.hidden_positions(title, s.opened)[1:]) | s.shown(5)
+    s.data["last_hint_i"][5] = 0
+    hidden = G.hidden_positions(title, s.opened, s.shown(5))
+    r = run(gc.handle("lh", Ctx(), "6 提示", command=False))
+    assert len(hidden) <= 1 and ("最后一个字" in r.texts[0] or "开完" in r.texts[0])

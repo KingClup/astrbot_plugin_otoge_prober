@@ -46,7 +46,9 @@ def _section(title: str, charts: list[GekiChart], limit: int | None, plat: bool 
 
 def render(b: GekiBest, *, best_limit: int | None = 15, plat_limit: int | None = 10) -> str:
     server = SERVER_NAMES.get(b.server, b.server)
-    ver = b.version_name
+    ver = b.version_name if b.client or b.server != "manual" else "Re:Fresh 规则"
+    if b.server == "manual":
+        server = "手动传分"
     if b.client:
         ver += f"（{b.client // 100}.{b.client % 100:02d}）"
     lines = [f"音击 · {server} · {ver}", b.player or "?"]

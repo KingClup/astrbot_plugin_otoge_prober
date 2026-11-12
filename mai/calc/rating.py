@@ -94,6 +94,7 @@ class Best50:
     source: str = ""          # 国服 data source shown on the image (水鱼查分器 / 落雪查分器)
     version: str = ""         # 私服：玩家客户端对应的版本名；空 = 这个服曲库的当前版本
     rom: str = ""             # 私服：玩家客户端版本号（"1.55.00"），页头标出来
+    show_dx: bool = True      # 卡片上显示 DX 分 + DX 星（/mai dx分 关 可以关）
 
     @property
     def old_total(self) -> int:

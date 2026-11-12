@@ -109,6 +109,24 @@ class GameData:
                 out.append(a)
         return out
 
+    def versions(self, game: str) -> list[tuple[str, list[str]]]:
+        """这个游戏的版本（按时间先后）和额外叫法；没有版本信息的游戏返回空列表。"""
+        if game == "mai":
+            db = self.p.catalog.db
+            if db is None:
+                return []
+            return [(v, [db.version_abbr.get(v, "")]) for v in db.versions]
+        if game == "chu":
+            first: dict[str, int] = {}
+            for s in self.songs("chu"):
+                if s.version:
+                    try:
+                        first[s.version] = min(first.get(s.version, 10 ** 9), int(s.sid))
+                    except ValueError:
+                        first.setdefault(s.version, 10 ** 9)
+            return [(v, []) for v in sorted(first, key=first.get)]
+        return []
+
     @property
     def _sx(self):
         """sdvx.in client: ChartCommands keeps it as .src (main.py)."""
@@ -130,7 +148,7 @@ class GameData:
                 charts.append(Chart(f"{kind} {MAI_DIFF.get(c.diff, c.diff.upper())}", c.level_in(region),
                                     c.ds_in(region, rv), c))
             if charts:
-                out.append(Song("mai", str(s.id), s.title, list(s.aliases), charts, s))
+                out.append(Song("mai", str(s.id), s.title, list(s.aliases), charts, s, version=s.version or ""))
         return out
 
     def _chu(self, region: str) -> list[Song]:
@@ -157,7 +175,7 @@ class GameData:
                     continue
                 charts.append(Chart(CHU_LABEL[CHU_KEY[int(d)]], ch.level, const, (s, int(d))))
             if charts:
-                out.append(Song("chu", str(s.id), s.title, db.aliases_of(s), charts, s))
+                out.append(Song("chu", str(s.id), s.title, db.aliases_of(s), charts, s, version=s.version or ""))
         return out
 
     def _geki(self) -> list[Song]:
@@ -167,7 +185,7 @@ class GameData:
         mdb = getattr(self.p.geki, "db", None)
         out = []
         for sid, e in entries.items():
-            if e.removed:
+            if e.removed:                                   # 音击只有日服（不分区服）
                 continue
             charts = []
             for k in CHART_KEYS["geki"]:
@@ -186,21 +204,25 @@ class GameData:
         return out
 
     # ------------------------------------------------------------ sdvx.in charts (猜谱面)
-    def chart_songs(self, game: str) -> list[Song]:
-        return self._cached(("chart", game), lambda: self._chart_songs(game))
+    def chart_songs(self, game: str, region: str = "jp") -> list[Song]:
+        """region 只对中二有用：国服 / 国际服只出那个服有的歌，定数用那个服的。"""
+        region = region if game == "chu" else "jp"
+        key = ("chart", game) if region == "jp" else ("chart", game, region)
+        return self._cached(key, lambda: self._chart_songs(game, region))
 
-    def _chart_songs(self, game: str) -> list[Song]:
+    def _chart_songs(self, game: str, region: str = "jp") -> list[Song]:
         sx = self._sx
         entries = sx.entries.get(game) or {}
         local = (sx.aliases.get(game) or {}) if hasattr(sx, "aliases") else {}
         consts = {}
         if game in ("chu", "geki"):
-            for s in self.songs(game):
+            for s in (self.songs(game, region) if game == "chu" else self.songs(game)):
                 consts[s.title] = {c.diff: c.const for c in s.charts}
-        aliases_from = {}
+        aliases_from, versions_from = {}, {}
         if game == "chu":
             for s in self.songs("chu"):
                 aliases_from[s.title] = s.aliases
+                versions_from[s.title] = s.version
         out = []
         for sid, e in entries.items():
             if e.removed:
@@ -215,6 +237,8 @@ class GameData:
                     const = (consts.get(e.title) or {}).get(CHU_LABEL[k])
                 elif game == "geki":
                     const = (consts.get(e.title) or {}).get(GEKI_LABEL[k])
+                if const is None and game == "chu" and region != "jp":
+                    continue                                   # 这个服没有这张谱
                 if const is None and game in ("sdvx", "pjsk"):
                     const = _level_num(game, e.level(k))
                 charts.append(Chart(label, e.level_text(k), const, (e, k)))
@@ -222,7 +246,7 @@ class GameData:
                 al = list(local.get(sid, [])) + list(aliases_from.get(e.title, []))
                 if game in ("chu", "geki"):
                     al = self._with_borrowed(e.title, al)
-                out.append(Song(game, sid, e.title, al, charts, e))
+                out.append(Song(game, sid, e.title, al, charts, e, version=versions_from.get(e.title, "")))
         return out
 
     async def ensure_charts(self, game: str) -> int:

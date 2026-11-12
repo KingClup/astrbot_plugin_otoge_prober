@@ -56,7 +56,7 @@ async def test_binder_priv_all_servers(plugin):
     assert is_success(msg) and "MuNET 绑定成功" in msg
     msg = await b.bind(QQ, {"game": "chu", "server": "priv", "method": "aqua", "value": "player_b"})
     assert is_success(msg) and "AquaDX 绑定成功" in msg
-    msg = await b.bind(QQ, {"game": "chu", "server": "priv", "method": "rin", "account": "KCrump",
+    msg = await b.bind(QQ, {"game": "chu", "server": "priv", "method": "rin", "account": "PlayerA",
                             "password": RD.GOOD_PW, "agree": True})
     assert is_success(msg) and "14.86" in msg
     st = b.status(QQ)
@@ -68,9 +68,9 @@ async def test_binder_priv_all_servers(plugin):
 
 @pytest.mark.parametrize("form,err", [
     ({"method": "munet", "value": "a b/c"}, "用户名格式不对"),
-    ({"method": "rin", "account": "KCrump", "password": "x"}, "勾选"),
+    ({"method": "rin", "account": "PlayerA", "password": "x"}, "勾选"),
     ({"method": "rin", "account": "a b", "password": "x", "agree": True}, "账号格式不对"),
-    ({"method": "rin", "account": "KCrump", "password": "x", "code": "12", "agree": True}, "6 位数字"),
+    ({"method": "rin", "account": "PlayerA", "password": "x", "code": "12", "agree": True}, "6 位数字"),
     ({"method": "rin_token", "value": "short", "agree": True}, "refreshToken 格式不对"),
     ({"method": "nope"}, "方式不对"),
 ])
@@ -81,10 +81,10 @@ async def test_binder_priv_validation(plugin, form, err):
 
 async def test_binder_rin_totp_and_token(plugin):
     b = Binder(plugin)
-    msg = await b.bind(QQ, {"game": "mai", "server": "priv", "method": "rin", "account": "KCrump",
+    msg = await b.bind(QQ, {"game": "mai", "server": "priv", "method": "rin", "account": "PlayerA",
                             "password": RD.TOTP_PW, "agree": True})
     assert not is_success(msg) and "6 位验证码" in msg
-    msg = await b.bind(QQ, {"game": "mai", "server": "priv", "method": "rin", "account": "KCrump",
+    msg = await b.bind(QQ, {"game": "mai", "server": "priv", "method": "rin", "account": "PlayerA",
                             "password": RD.TOTP_PW, "code": RD.TOTP_CODE, "agree": True})
     assert is_success(msg) and "还没有舞萌记录" in msg
     plugin.priv.bindings.remove(QQ)
@@ -107,7 +107,7 @@ async def test_http_priv_password_not_echoed_or_logged(plugin, caplog):
         assert "munet" not in st["bound"]["mai"]
         with caplog.at_level(logging.INFO):
             r = await c.post("/api/bind", headers=h, json={"game": "chu", "server": "priv", "method": "rin",
-                                                           "account": "KCrump", "password": RD.GOOD_PW, "agree": True})
+                                                           "account": "PlayerA", "password": RD.GOOD_PW, "agree": True})
             body = await r.text()
         j = json.loads(body)
         assert j["ok"] and j["bound"]["chu"]["rin"] and j["bound"]["mai"]["rin"]     # 一个绑定两个游戏

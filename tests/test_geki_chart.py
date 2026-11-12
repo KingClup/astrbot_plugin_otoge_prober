@@ -92,9 +92,9 @@ async def test_geki_list_chart_and_cache(tmp_path):
     assert hardest(src.entries["geki"]["05106"], "geki") == "lun"   # … unless it is the only chart
     r = await cmd.handle(CTX, "谱面 what color", "geki")
     assert r.image and "[オンゲキ MASTER 12+]" in r.texts[0] and "CHAIN 904 / BELL 87" in r.texts[0]
-    assert "https://sdvx.in/ongeki/01/01053mst.htm" in r.texts[0] and "youtu.be/kOGuVsn-FQ0" in r.texts[0]
+    assert "https://sdvx.in/ongeki/_/viewer.php?id=01053&diff=mst" in r.texts[0] and "youtu.be/kOGuVsn-FQ0" in r.texts[0]
     r = await cmd.handle(CTX, "what color lun", "geki")
-    assert "LUNATIC 14+" in r.texts[0] and "/ongeki/luna/01053luna.htm" in r.texts[0]
+    assert "LUNATIC 14+" in r.texts[0] and "/ongeki/_/viewer.php?id=01053&diff=lun" in r.texts[0]
     assert r.image is None and "谱面图没取到" in r.texts[0]      # (no LUNATIC layer in the fake site)
     r = await cmd.handle(CTX, "what color 红", "geki")
     assert "没有这个难度的谱面图" in r.texts[0]
@@ -103,11 +103,11 @@ async def test_geki_list_chart_and_cache(tmp_path):
     # a second refresh only reads the genre pages (song scripts are kept)
     n = len(calls)
     assert await src.ensure("geki", force=False) == 2 and len(calls) == n          # fresh: nothing fetched
-    os.utime(os.path.join(src.dir, "songs_geki.json"), (0, 0))
+    os.utime(os.path.join(src.dir, "songs_geki_v2.json"), (0, 0))
     src.entries["geki"] = {}
     await src.ensure("geki")
     new = calls[n:]
-    assert all(p.startswith("/ongeki/sort/") for p in new) and new
+    assert all(p.startswith(("/ongeki/sort/", "/ongeki/_/json/")) for p in new) and new
     saved = json.load(open(os.path.join(src.dir, "songs_geki_parts.json"), encoding="utf-8"))
     assert set(saved) == {"01/01053sort", "luna/01053luna", "luna/05106luna"}
 
@@ -127,3 +127,86 @@ async def test_geki_jackets(tmp_path):
     assert list(got) == ["What color..."] and os.path.exists(got["What color..."])
     n = len(calls)
     assert list(await src.geki_jackets(["What color..."])) == ["What color..."] and len(calls) == n   # cached
+
+
+# ---------- 2026-11 sdvx.in Re:Flesh：ONGEKI 改成 JSON 列表 + webp，LUNATIC 有自己的编号 ----------
+NEW_NORMAL = [
+    {"id": "01197", "title": "人生リセットボタン", "artist": "kemu", "genre": "niconico",
+     "levels": {"bsc": "_4", "adv": "_7", "exp": "_11", "mst": "13", "rem": ""}, "bpm": "200",
+     "mst": {"combo": "1221", "bell": "175"}, "title_search_hira": "x"},
+    {"id": "01188", "title": "Starring Stars", "artist": "a", "levels": {"bsc": "_4", "mst": "12", "rem": "13+"}},
+]
+NEW_LUNA = [{"id": "000", "title": ""},
+            {"id": "051", "title": "わたしたち魔法乙女です☆", "levels": {"luna": "14"}, "youtube": {"luna1": "abc123", "luna2": ""}},
+            {"id": "054", "title": "人生リセットボタン", "levels": {"luna": "0"}}]
+
+
+def new_transport(calls):
+    files = {
+        "/ongeki/_/json/songs01.json": json.dumps(NEW_NORMAL).encode(),
+        "/ongeki/_/json/songs_update.json": b"[]",
+        "/ongeki/_/json/songs_del.json": json.dumps([{"id": "00001", "title": "Gone", "levels": {"mst": "10"}}]).encode(),
+        "/ongeki/_/json/songs_luna.json": json.dumps(NEW_LUNA).encode(),
+        "/ongeki/_/json/songs_lunadel.json": b"[]",
+        "/ongeki/01/bg/01197bg.webp": _img((0, 0, 50, 255)),
+        "/ongeki/01/obj/data01197mst.webp": _img((255, 0, 255, 200)),
+        "/ongeki/01/bg/01197bar.webp": _img((0, 0, 0, 0)),
+        "/ongeki/01/bg/01188bg.webp": _img((0, 0, 50, 255)),
+        "/ongeki/01/obj/data01188rem.webp": _img((255, 255, 255, 200)),
+        "/ongeki/01/bg/01188bar.webp": _img((0, 0, 0, 0)),
+        "/ongeki/luna/bg/054bg.webp": _img((0, 0, 50, 255)),
+        "/ongeki/luna/obj/data054luna.webp": _img((255, 255, 0, 200)),
+        "/ongeki/luna/bg/054bar.webp": _img((0, 0, 0, 0)),
+        "/ongeki/luna/bg/051bg.webp": _img((0, 0, 50, 255)),
+        "/ongeki/luna/obj/data051luna.webp": _img((0, 255, 255, 200)),
+        "/ongeki/luna/jacket/051.png": _img((9, 9, 9, 255), (100, 100)),
+    }
+
+    def handler(req: httpx.Request):
+        calls.append(req.url.path)
+        body = files.get(req.url.path)
+        if body is None:
+            return httpx.Response(302, headers={"location": "https://sdvx.in/"})
+        return httpx.Response(200, content=body)
+    return httpx.MockTransport(handler)
+
+
+async def test_geki_reflesh_json_site(tmp_path):
+    calls: list = []
+    src = SdvxIn(str(tmp_path / "s"), transport=new_transport(calls))
+    assert await src.ensure("geki") == 4                    # 2 songs + LUNATIC-only + the removed one
+    assert not any(p.startswith("/ongeki/sort/") for p in calls)   # JSON worked: old pages not touched
+    ent = src.entries["geki"]
+    reset = ent["01197"]
+    assert reset.level("mst") == "13" and reset.level("lun") == "?" and reset.raw["luna_id"] == "054"
+    assert ent["01188"].level("lun") == "13+" and ent["01188"].raw["lun_src"] == "rem"
+    only = ent["L051"]
+    assert only.title == "わたしたち魔法乙女です☆" and only.level("lun") == "14" and ent["00001"].removed
+    for e, key in ((reset, "mst"), (reset, "lun"), (ent["01188"], "lun"), (only, "lun")):
+        got = await src.chart_measures(e, key)
+        assert got is not None and got[0].width > 0, (e.id, key)
+    assert "/ongeki/luna/obj/data054luna.webp" in calls and "/ongeki/01/obj/data01188rem.webp" in calls
+    assert reset.viewer_url("lun") == "https://sdvx.in/ongeki/_/viewer.php?id=054&diff=luna"
+    assert ent["01188"].viewer_url("lun").endswith("id=01188&diff=rem")
+    got = await src.geki_jackets(["わたしたち魔法乙女です☆"])
+    assert list(got) == ["わたしたち魔法乙女です☆"]
+
+
+async def test_geki_guess_games_build_song_lists(tmp_path):
+    """v2.4.3 之前 games/sources._geki 引用了不存在的 region / consts，/猜谱面 音击、/猜歌 音击 一开局就报错。"""
+    from types import SimpleNamespace
+    from games.sources import GameData
+    from games.commands import GameCommands
+    src = SdvxIn(str(tmp_path / "s"), transport=new_transport([]))
+    await src.ensure("geki")
+    charts = ChartCommands(src)
+    gd = GameData(SimpleNamespace(charts=charts, geki=SimpleNamespace(db=None), chu_svc=None, cmd=None))
+    gd._with_borrowed = lambda title, al: al
+    songs = gd.songs("geki")
+    assert {s.title for s in songs} >= {"人生リセットボタン", "Starring Stars"}
+    cs = gd.chart_songs("geki")
+    assert any(c.diff == "LUNATIC" for s in cs for c in s.charts)
+    g = GameCommands(gd)
+    from games.core import Range
+    r = await g._start_chart("g", "geki", Range())
+    assert r.image and "猜谱面" in r.texts[0], r.texts

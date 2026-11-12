@@ -24,9 +24,14 @@ except ImportError:  # tests
     from core import palette as P
 MAI, CHU = P.MAI, P.CHU
 PRIV = P.REGION["私服"]
-GREEN = P.CORE                 # 段标题（不是游戏、不是区服）
+try:
+    from . import help as HP
+except ImportError:  # tests
+    from core import help as HP
+NAVY, MIST = HP.NAVY, HP.MIST     # v2.4.1：和帮助图、绑定网站一套（白底、藏青、宋体标题）
+GREEN = NAVY                   # 段标题（不是游戏、不是区服）
 WARN = P.REQ
-TEXT = P.TEXT
+TEXT = HP.TEXT
 REGION_COLORS = dict(P.REGION)
 
 
@@ -72,7 +77,7 @@ def text(v: ProgressView) -> str:
 
 def _title(d, x, y, t, color):
     d.rounded_rectangle((x, y + 4, x + 8, y + 42), 4, fill=color)
-    F.draw_text(d, (x + 22, y), t, "bold", 36, K.INK)
+    HP._serif(d, (x + 22, y - 2), t, 38)
 
 
 def _row_h(r: ProgressRow, iw: int) -> tuple[int, list[str]]:
@@ -92,34 +97,42 @@ def render(v: ProgressView, bot_name: str = "AstrBot", assets=None) -> bytes:
     H = (30 + 170 + 24 + sum(b[3] + 24 for b in game_blocks)
          + sum(96 + 34 * len(ls) + 20 + 24 for _t, ls in secs)
          + (96 + 31 * len(src) + 20 + 24 if src else 0) + 40 + 32 * len(note) + 110)
-    im = K.background(assets, "", W, H, seed=23)
+    im = HP._bg(W, H)
     d = ImageDraw.Draw(im)
 
-    # ---- title ----
-    K.panel(im, (M, 30, W - M, 200), r=36)
-    d.rounded_rectangle((M + 28, 62, M + 116, 150), 26, fill=P.CORE)
-    F.draw_text(d, (M + 45, 72), "版", "bold", 54, (255, 255, 255))
-    F.draw_text(d, (M + 140, 56), "版本进度", "bold", 50, K.INK)
+    # ---- 页头：宋体大标题 + 看板娘 + 一粗一细两条线 ----
+    base = 30 + 170 - 8
+    girl = HP._girl("think", 230)
+    gw = 0
+    if girl is not None:
+        gw = girl.width
+        vis = min(girl.height, base - 8)
+        im.alpha_composite(girl.crop((0, 0, girl.width, vis)), (W - M - girl.width + 4, base - vis))
+        d = ImageDraw.Draw(im)
+    HP._serif(d, (M + 4, 40), "版本进度", 64)
     sub = f"上次核实 {v.when} · 每天 {v.hour}:00 自动核实"
     if v.changes:
         sub += " · 最近变化：" + "；".join(v.changes)
-    F.draw_text(d, (M + 142, 124), F.fit(sub, "regular", 27, W - 2 * M - 170), "regular", 27, TEXT)
+    F.draw_text(d, (M + 6, 128), F.fit(sub, "regular", 26, W - 2 * M - gw - 20), "regular", 26, TEXT)
+    d.line((M, base, W - M, base), fill=NAVY, width=3)
+    d.line((M, base + 8, W - M, base + 8), fill=MIST, width=1)
     y = 30 + 170 + 24
 
     # ---- one panel per game ----
     for game, rows, hs, ph in game_blocks:
         col = MAI if "舞萌" in game else CHU
-        K.panel(im, (M, y, W - M, y + ph), r=32)
+        HP._panel(im, (M, y, W - M, y + ph))
+        d = ImageDraw.Draw(im)
         _title(d, M + 28, y + 28, game, col)
         ry = y + 96
         for r, (h, ev) in zip(rows, hs):
             x0 = M + 36
             rc = REGION_COLORS.get(r.region, PRIV)
             x = K.pill(d, x0, ry, r.region, size=24, h=42, pad=16, fg=(255, 255, 255), bg=rc) + 18
-            F.draw_text(d, (x, ry + 2), F.fit(r.version or "?", "bold", 32, 520), "bold", 32, K.INK)
+            F.draw_text(d, (x, ry + 2), F.fit(r.version or "?", "bold", 32, 520), "bold", 32, NAVY)
             if r.number:
                 nx = x + F.text_width(F.fit(r.version or "?", "bold", 32, 520), "bold", 32) + 16
-                K.pill(d, nx, ry + 4, r.number, size=22, h=36, pad=12, fg=rc, bg=(255, 255, 255, 240), outline=rc)
+                K.pill(d, nx, ry + 4, r.number, size=22, h=36, pad=12, fg=rc, bg=(255, 255, 255, 255), outline=rc)
             ty = ry + 54
             for line in ev:
                 F.draw_text(d, (x0 + 8, ty), line, "regular", 23, TEXT)
@@ -132,7 +145,8 @@ def render(v: ProgressView, bot_name: str = "AstrBot", assets=None) -> bytes:
     # ---- sections: 补曲库 / 定数 ----
     for t, ls in secs:
         ph = 96 + 34 * len(ls) + 20
-        K.panel(im, (M, y, W - M, y + ph), r=32)
+        HP._panel(im, (M, y, W - M, y + ph))
+        d = ImageDraw.Draw(im)
         _title(d, M + 28, y + 28, t, GREEN)
         ty = y + 96
         for line in ls:
@@ -143,11 +157,12 @@ def render(v: ProgressView, bot_name: str = "AstrBot", assets=None) -> bytes:
     # ---- sources ----
     if src:
         ph = 96 + 31 * len(src) + 20
-        K.panel(im, (M, y, W - M, y + ph), r=32)
-        _title(d, M + 28, y + 28, "数据源", K.SUB)
+        HP._panel(im, (M, y, W - M, y + ph))
+        d = ImageDraw.Draw(im)
+        _title(d, M + 28, y + 28, "数据源", HP.EX_INK)
         ty = y + 96
         for line in src:
-            F.draw_text(d, (M + 36, ty), line, "regular", 21, K.SUB)
+            F.draw_text(d, (M + 36, ty), line, "regular", 21, HP.EX_INK)
             ty += 31
         y += ph + 24
 
@@ -156,5 +171,5 @@ def render(v: ProgressView, bot_name: str = "AstrBot", assets=None) -> bytes:
     for line in note:
         F.draw_text(d, (M + 12, ty), line, "regular", 23, TEXT)
         ty += 32
-    K.footer(im, bot_name, credit="")
+    HP._footer(im, bot_name, M)
     return K.to_png(im)

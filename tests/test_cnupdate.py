@@ -68,5 +68,5 @@ def test_changelog_parses_and_matches_version():
     t = CL.text(es, 3)
     assert t.startswith("更新记录（最近 3 版") and "`" not in t and f"v{ver}" in t
     assert "没列" not in CL.text(es, None, max_chars=100000)
-    assert CL.summary(es, 2)[1]["version"].startswith("v1.")
+    assert CL.summary(es, 2)[1]["version"].startswith("v")
     assert CL.parse("## v9.9.9 · 标题（2030-01-01）\n- 一\n  续行\n- 二\n")[0].items == ["一 续行", "二"]

@@ -72,6 +72,24 @@ class Prefs:
             u["last_game"] = game
             self._save()
 
+    # ---------- 图上 / 传分网站上显示哪些附加分数（每人一份，默认都显示） ----------
+    SHOW_KEYS = {"sdvx_ex": "SDVX EX SCORE", "mai_dx": "舞萌 DX 分", "geki_plat": "音击白金分"}
+
+    def show(self, uid: str, key: str) -> bool:
+        return bool(((self.d["users"].get(str(uid)) or {}).get("show") or {}).get(key, True))
+
+    def set_show(self, uid: str, key: str, on: bool) -> None:
+        if key not in self.SHOW_KEYS:
+            raise KeyError(key)
+        u = self.d["users"].setdefault(str(uid), {})
+        if self.show(uid, key) == bool(on):
+            return
+        u.setdefault("show", {})[key] = bool(on)
+        self._save()
+
+    def shows(self, uid: str) -> dict[str, bool]:
+        return {k: self.show(uid, k) for k in self.SHOW_KEYS}
+
     # ---------- catalog default server ----------
     def catalog_server(self, game: str) -> str:
         return (self.d.get("catalog_server") or {}).get(game) or "intl"
@@ -97,3 +115,56 @@ class Prefs:
 
     def llm_groups(self) -> dict[str, bool]:
         return {gid: bool(g.get("llm")) for gid, g in self.d["groups"].items()}
+
+    # ---------- 热闹时邀请小游戏（每个群一个开关，默认关） ----------
+    def invite_enabled(self, group_id: str | None) -> bool:
+        return bool(group_id) and bool((self.d["groups"].get(str(group_id)) or {}).get("invite", False))
+
+    def set_invite(self, group_id: str, on: bool) -> None:
+        g = self.d["groups"].setdefault(str(group_id), {})
+        g["invite"] = bool(on)
+        g["at"] = int(time.time())
+        self._save()
+
+    def add_group(self, group_id: str) -> None:
+        """WebUI 里先把群加进列表（两个开关都关着），之后再一个个打开。"""
+        if str(group_id) not in self.d["groups"]:
+            self.d["groups"][str(group_id)] = {"at": int(time.time())}
+            self._save()
+
+    def remove_group(self, group_id: str) -> None:
+        if self.d["groups"].pop(str(group_id), None) is not None:
+            self._save()
+
+    def group_switches(self) -> dict[str, dict]:
+        return {gid: {"llm": bool(g.get("llm")), "invite": bool(g.get("invite"))} for gid, g in self.d["groups"].items()}
+
+    def invite_settings(self) -> dict:
+        return dict(self.d.get("invite") or {})
+
+    def set_invite_settings(self, values: dict) -> None:
+        self.d["invite"] = dict(values)
+        self._save()
+
+    # ---------- 小游戏总开关（WebUI 里切，不用重载；None = 跟插件配置） ----------
+    def games_enabled(self) -> bool | None:
+        v = self.d.get("games_enabled")
+        return None if v is None else bool(v)
+
+    def set_games_enabled(self, on: bool) -> None:
+        self.d["games_enabled"] = bool(on)
+        self._save()
+
+    # ---------- 群名（从 QQ 读到的，WebUI 显示在群号旁边） ----------
+    def group_names(self) -> dict[str, str]:
+        return dict(self.d.get("group_names") or {})
+
+    def set_group_names(self, names: dict[str, str]) -> None:
+        cur = self.d.setdefault("group_names", {})
+        changed = False
+        for k, v in names.items():
+            if v and cur.get(str(k)) != v:
+                cur[str(k)] = str(v)[:60]
+                changed = True
+        if changed:
+            self._save()

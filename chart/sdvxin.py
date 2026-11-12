@@ -5,18 +5,21 @@ Song lists (refreshed daily, cached on disk; an old list keeps working when sdvx
   WE        /chunithm/_/json/songs_we.json (+ wecourse / weuso / wedel)  id "312",   levels "狂4" (one chart each)
   SDVX      /sdvx/_/json/songs01…NN.json, removed.json                  id "07112", levels {nov,adv,exh,mxm}
   PJSK      /prsk/_/json/songs0001.json, songs_removed.json             id "0737",  levels {esy,…,exp,mst,apd}
-  ONGEKI    no JSON list: the genre pages /ongeki/sort/{pops,…,lunatic}.htm name one script per song,
-            /ongeki/{dir}/js/{id}sort.js (BASIC…MASTER) or /ongeki/luna/js/{id}luna.js (LUNATIC); each script
-            is read once and kept (songs_geki_parts.json), so a daily refresh only fetches the 8 pages + new songs.
-            id "01053", levels {bsc,adv,exp,mst,lun}
+  ONGEKI    (2026-11 Re:Flesh redesign) /ongeki/_/json/songs01…20.json + songs_update.json, songs_del.json;
+            id "01053", levels {bsc,adv,exp,mst,rem}; Re:MASTER ("rem") is stored as our "lun" key.
+            LUNATIC has its own list and ids: /ongeki/_/json/songs_luna.json (+ songs_lunadel.json), id "054",
+            levels {luna}; matched to the normal song by title ("luna_id"), otherwise an entry "L054" of its own.
+            Old fallback (only if the JSON is unreachable): the genre pages /ongeki/sort/*.htm → per-song scripts,
+            kept in songs_geki_parts.json.
 A level written with a leading "_" (e.g. "_9+") has no chart view on sdvx.in.
 
 Chart images (what the sdvx.in viewers stack on top of each other):
   CHUNITHM  /chunithm/{id[:2]}/bg/{id}bg.webp + /chunithm/{id[:2]}/obj/data{id}{diff}.webp + …/bg/{id}bar.webp
   WE        /chunithm/end/bg/{id}bg.webp + /chunithm/end/obj/data{id}end.webp + /chunithm/end/bg/{id}bar.webp
   PJSK      /prsk/bg/{id}bg.webp + /prsk/obj/data{id}{diff}.webp + /prsk/bg/{id}bar.webp
-  ONGEKI    /ongeki/{id[:2]}/bg/{id}bg.png + /ongeki/{id[:2]}/obj/data{id}{diff}.png + …/bg/{id}bar.png
-            LUNATIC: notes layer /ongeki/luna/obj/data{id}luna.png (same bg / bar)
+  ONGEKI    /ongeki/{id[:2]}/bg/{id}bg.webp + /ongeki/{id[:2]}/obj/data{id}{diff}.webp + …/bg/{id}bar.webp
+            (older songs still have .png too); Re:MASTER: …/obj/data{id}rem.webp (webp only)
+            LUNATIC: /ongeki/luna/bg/{lid}bg.webp + /ongeki/luna/obj/data{lid}luna.webp + /ongeki/luna/bg/{lid}bar.webp
   SDVX      newer charts: /sdvx/{id[:2]}/{id}{d}.json drawn by chart/sdvx_draw.py;
             older charts: /{id[:2]}/bg/{id}bg.png + /{id[:2]}/obj/data{id}{d}.png + /{id[:2]}/bg/{id}bar.png
             (d = n / a / e / m; the 4th chart of every song is "m" whatever its name: MXM / INF / GRV / HVN / VVD / XCD)
@@ -131,9 +134,11 @@ class Entry:
         if self.game == "pjsk":
             return f"{BASE}/prsk/_/viewer.php?id={self.id}&diff={key}"
         if self.game == "geki":
-            if key == "lun":
-                return f"{BASE}/ongeki/luna/{self.id}luna.htm"
-            return f"{BASE}/ongeki/{self.id[:2]}/{self.id}{key}.htm"
+            if key == "lun" and self.raw.get("luna_id"):
+                return f"{BASE}/ongeki/_/viewer.php?id={self.raw['luna_id']}&diff=luna"
+            if key == "lun" and self.raw.get("lun_src") == "rem":
+                return f"{BASE}/ongeki/_/viewer.php?id={self.id}&diff=rem"
+            return f"{BASE}/ongeki/_/viewer.php?id={self.id}&diff={key}"
         return f"{BASE}/sdvx/_/viewer/?id={self.id}{SDVX_FILE.get(key, 'm')}"
 
     def youtube(self, key: str) -> list[str]:
@@ -210,6 +215,69 @@ def merge_geki(parts: list[dict]) -> list[dict]:
     return list(by.values())
 
 
+GEKI_MAIN_KEYS = ("bsc", "adv", "exp", "mst")
+
+
+def geki_items_from_json(normal: list[dict], removed: list[dict], luna: list[dict],
+                         luna_removed: list[dict]) -> list[dict]:
+    """sdvx.in Re:Flesh ONGEKI JSON → our items (levels {bsc,adv,exp,mst,lun}).
+    Re:MASTER → "lun" (lun_src "rem"); LUNATIC charts (own 3-digit ids) → "lun" of the same-titled song
+    (luna_id), or an entry "L<id>" of their own when no song has that title."""
+    out: dict[str, dict] = {}
+    for arr, gone in ((normal, False), (removed, True)):
+        for it in arr or []:
+            if not isinstance(it, dict):
+                continue
+            sid, title = str(it.get("id") or "").strip(), str(it.get("title") or "").strip()
+            if not sid or not title:
+                continue
+            if sid in out and not out[sid].get("_removed"):
+                continue
+            lv = it.get("levels") or {}
+            levels = {k: str(lv.get(k) or "") for k in GEKI_MAIN_KEYS if lv.get(k)}
+            item = {k: v for k, v in it.items() if k not in ("levels",) and not k.endswith("_search_hira")
+                    and not k.endswith("_search_abc")}
+            item.update({"id": sid, "title": title, "levels": levels})
+            if lv.get("rem") and str(lv.get("rem")) not in ("_", ""):
+                levels["lun"] = str(lv["rem"])
+                item["lun_src"] = "rem"
+            if gone:
+                item["_removed"] = True
+            out[sid] = item
+    by_title: dict[str, dict] = {}
+    for it in out.values():
+        if not it.get("_removed") or it["title"] not in by_title:
+            by_title[it["title"]] = it
+    for arr, gone in ((luna, False), (luna_removed, True)):
+        for it in arr or []:
+            if not isinstance(it, dict):
+                continue
+            lid, title = str(it.get("id") or "").strip(), str(it.get("title") or "").strip()
+            if not lid or not title or lid.strip("0") == "":
+                continue
+            lv = str((it.get("levels") or {}).get("luna") or "")
+            if lv in ("", "0"):
+                lv = "?"                                  # sdvx.in shows no level for some LUNATIC charts
+            elif lv in ("_", "_0"):
+                lv = "_?"
+            yt = it.get("youtube") or {}
+            host = by_title.get(title)
+            if host is not None and "lun" not in host["levels"]:
+                host["levels"]["lun"] = lv
+                host["luna_id"] = lid
+                if isinstance(host.get("youtube"), dict) and isinstance(yt, dict):
+                    host["youtube"] = {**host["youtube"], "lun1": yt.get("luna1", ""), "lun2": yt.get("luna2", "")}
+                continue
+            key = f"L{lid}"
+            if key in out and not out[key].get("_removed"):
+                continue
+            out[key] = {"id": key, "title": title, "artist": it.get("artist", ""), "bpm": it.get("bpm", ""),
+                        "levels": {"lun": lv}, "luna_id": lid, "luna_only": True,
+                        "youtube": {"lun1": yt.get("luna1", ""), "lun2": yt.get("luna2", "")} if isinstance(yt, dict)
+                        else {}, **({"_removed": True} if gone else {})}
+    return list(out.values())
+
+
 def _lists(game: str) -> list[tuple[str, bool]]:
     if game == "chu":
         return [(f"/chunithm/_/json/songs{i:02d}.json", False) for i in range(1, 21)] + \
@@ -277,6 +345,8 @@ class SdvxIn:
 
     # ---------- song lists ----------
     def _cache_path(self, game: str) -> str:
+        if game == "geki":                     # v2：Re:Flesh 的 JSON 列表（带 LUNATIC 编号）；旧站的缓存不再用
+            return os.path.join(self.dir, "songs_geki_v2.json")
         return os.path.join(self.dir, f"songs_{game}.json")
 
     def _load_entries(self, game: str, items: list[dict]) -> None:
@@ -324,7 +394,9 @@ class SdvxIn:
                     and time.time() - self._last_fail.get(game, 0) < self.RETRY_AFTER):
                 return len(self.entries[game])       # refresh failed a moment ago: keep the old list for now
             if game == "geki":
-                items = await self._geki_items(force)
+                items = await self._geki_json()
+                if not items:                              # JSON unreachable: the old page-scraping cache
+                    items = await self._geki_items(force)
                 ok = 1 if items else 0
             else:
                 items, ok = await self._json_items(game)
@@ -361,6 +433,36 @@ class SdvxIn:
                                 it = {**it, "_removed": True}
                             items.append(it)
         return items, ok
+
+    async def _geki_json(self) -> list[dict]:
+        """ONGEKI from the Re:Flesh JSON lists; [] when sdvx.in did not answer with them."""
+        async def arr(c, path):
+            data = await self._get(c, path)
+            if data is None:
+                return None
+            try:
+                v = json.loads(data)
+            except ValueError:
+                return None
+            return v if isinstance(v, list) else None
+
+        async with self._client() as c:
+            normal, got = [], 0
+            for i in range(1, 21):
+                a = await arr(c, f"/ongeki/_/json/songs{i:02d}.json")
+                if a is None:
+                    if got and i > 5:
+                        break
+                    continue
+                got += 1
+                normal += a
+            if not got:
+                return []
+            normal += await arr(c, "/ongeki/_/json/songs_update.json") or []
+            removed = await arr(c, "/ongeki/_/json/songs_del.json") or []
+            luna = await arr(c, "/ongeki/_/json/songs_luna.json") or []
+            luna_del = await arr(c, "/ongeki/_/json/songs_lunadel.json") or []
+        return geki_items_from_json(normal, removed, luna, luna_del)
 
     async def _geki_items(self, force: bool = False) -> list[dict]:
         """ONGEKI: genre pages → song scripts. Scripts already read are kept (sdvx.in ids never change)."""
@@ -430,6 +532,20 @@ class SdvxIn:
         os.replace(tmp, self._alias_path())
         self._search.pop(game, None)
 
+    def remove_alias(self, game: str, alias: str, sid: str) -> bool:
+        lst = (self.aliases.get(game) or {}).get(sid) or []
+        if alias not in lst:
+            return False
+        lst.remove(alias)
+        if not lst:
+            self.aliases[game].pop(sid, None)
+        tmp = self._alias_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.aliases, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, self._alias_path())
+        self._search.pop(game, None)
+        return True
+
     def index(self, game: str):
         try:
             from ..mai.data.fuzzy import FuzzyIndex
@@ -481,7 +597,9 @@ class SdvxIn:
             return out
 
         async def one(c, t: str, sid: str) -> None:
-            data = await self._get(c, f"/ongeki/{sid[:2]}/jacket/{sid}.png")
+            path = (f"/ongeki/luna/jacket/{sid[1:]}.png" if sid.startswith("L")
+                    else f"/ongeki/{sid[:2]}/jacket/{sid}.png")
+            data = await self._get(c, path)
             if data and data[:4] == b"\x89PNG":
                 p = self.geki_jacket_path(sid)
                 tmp = p + ".tmp"
@@ -600,10 +718,18 @@ class SdvxIn:
                          f"/chunithm/end/bg/{e.id}bar.webp")
                 return await self._layer_blobs(c, paths, alt_ext=".png")
             if e.game == "geki":
-                notes = (f"/ongeki/luna/obj/data{e.id}luna.png" if key == "lun"
-                         else f"/ongeki/{i2}/obj/data{e.id}{key}.png")
-                paths = (f"/ongeki/{i2}/bg/{e.id}bg.png", notes, f"/ongeki/{i2}/bg/{e.id}bar.png")
-                return await self._layer_blobs(c, paths)
+                lid = str(e.raw.get("luna_id") or "")
+                if key == "lun" and lid:                  # LUNATIC: own id + folder (webp only)
+                    paths = (f"/ongeki/luna/bg/{lid}bg.webp", f"/ongeki/luna/obj/data{lid}luna.webp",
+                             f"/ongeki/luna/bg/{lid}bar.webp")
+                    return await self._layer_blobs(c, paths, alt_ext=".png")
+                fkey = "rem" if key == "lun" and e.raw.get("lun_src") == "rem" else key
+                if key == "lun" and fkey == "lun":       # cached from the old site: old luna path
+                    notes = f"/ongeki/luna/obj/data{e.id}luna.png"
+                else:
+                    notes = f"/ongeki/{i2}/obj/data{e.id}{fkey}.webp"
+                paths = (f"/ongeki/{i2}/bg/{e.id}bg.webp", notes, f"/ongeki/{i2}/bg/{e.id}bar.webp")
+                return await self._layer_blobs(c, paths, alt_ext=".png")
             if e.game == "pjsk":
                 paths = (f"/prsk/bg/{e.id}bg.webp", f"/prsk/obj/data{e.id}{key}.webp", f"/prsk/bg/{e.id}bar.webp")
                 return await self._layer_blobs(c, paths)

@@ -7,13 +7,13 @@
 <title>音游查分 · 总览</title>
 <style>
   :root {
-    --bg: #f6f3fb; --card: #ffffff; --ink: #2b2140; --sub: #7a6d93; --line: #e6def3;
-    --accent: #4e5a70; --accent2: #6b7a96; --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --chip: #eef0f5;
+    --bg: #f5f7fb; --card: #ffffff; --ink: #1b2a4a; --sub: #56637d; --line: #d8deea;
+    --accent: #1b2a4a; --accent2: #5f86b5; --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --chip: #e6effa;
     --mai: #2878eb; --chu: #dea00a; --geki: #ec5096; --sdvx: #8a46dc; --pjsk: #20b2a6; --chart: #e66928; --mini: #cd3e3e;
   }
   html[data-theme="dark"] {
-    --bg: #17141f; --card: #221d2e; --ink: #ece6f7; --sub: #a99cc2; --line: #362d48;
-    --accent: #7d8aa6; --accent2: #9aa6bf; --chip: #2b2f3c;
+    --bg: #0f1626; --card: #162036; --ink: #eef2f9; --sub: #9aa6bd; --line: #27324b;
+    --accent: #5f86b5; --accent2: #8fb2d9; --chip: #1a2640;
   }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 18px; background: var(--bg); color: var(--ink);
@@ -83,13 +83,51 @@
   .g.mai { background: var(--mai); } .g.chu { background: var(--chu); } .g.geki { background: var(--geki); }
   .g.sdvx { background: var(--sdvx); } .g.pjsk { background: var(--pjsk); } .g.chart { background: var(--chart); } .g.mini { background: var(--mini); }
   .stat.mai { border-top: 4px solid var(--mai); } .stat.chu { border-top: 4px solid var(--chu); } .stat.geki { border-top: 4px solid var(--geki); }
-  .stat.chart { border-top: 4px solid var(--chart); } .stat.mini { border-top: 4px solid var(--mini); }
+  .stat.chart { border-top: 4px solid var(--chart); } .stat.mini { border-top: 4px solid var(--mini); } .stat.sdvx { border-top: 4px solid var(--sdvx); }
+  /* iOS 风格开关 */
+  .sw { position: relative; display: inline-block; width: 46px; height: 28px; margin: 0; flex: none; vertical-align: middle; }
+  .sw input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .sw i { position: absolute; inset: 0; border-radius: 999px; background: #c9c4d4; transition: background .2s; cursor: pointer; }
+  html[data-theme="dark"] .sw i { background: #4a4258; }
+  .sw i::after { content: ""; position: absolute; left: 3px; top: 3px; width: 22px; height: 22px; border-radius: 50%;
+                 background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .2s; }
+  .sw input:checked + i { background: #34c759; }
+  .sw input:checked + i::after { transform: translateX(18px); }
+  .sw input:disabled + i { opacity: .5; cursor: wait; }
+  .swrow { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+  .gname { color: var(--sub); margin-left: 6px; }
+  .gtable td { vertical-align: middle; }
+  .gtable .st { color: var(--sub); font-size: 12px; }
+
+  /* ---- v2.3.9：和绑定网站一套的白 / 藏青 / 雾蓝，加一点动效 ---- */
+  h1 { font-family: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", STSong, SimSun, serif; font-weight: 500; letter-spacing: .06em;
+       padding-bottom: 10px; border-bottom: 4px double var(--ink); margin-bottom: 10px; }
+  section { animation: wRise .45s cubic-bezier(.2, .7, .2, 1) both; transition: border-color .2s, box-shadow .2s; }
+  section:nth-of-type(2) { animation-delay: .05s; } section:nth-of-type(3) { animation-delay: .1s; }
+  section:nth-of-type(4) { animation-delay: .15s; } section:nth-of-type(n+5) { animation-delay: .2s; }
+  section:hover { border-color: var(--accent2); box-shadow: 0 8px 22px -16px rgba(27, 42, 74, .55); }
+  section h2 { font-family: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", STSong, SimSun, serif; font-weight: 500; letter-spacing: .08em; }
+  button { transition: transform .12s, filter .15s, box-shadow .15s, background .15s; }
+  button:hover:not(:disabled) { filter: brightness(1.1); box-shadow: 0 3px 10px -4px rgba(27, 42, 74, .5); }
+  button:active:not(:disabled) { transform: scale(.96); }
+  nav a { transition: background .15s, color .15s, transform .12s; }
+  nav a:active { transform: scale(.95); }
+  .stat { transition: transform .16s, box-shadow .16s, border-color .16s; }
+  .stat:hover { transform: translateY(-2px); box-shadow: 0 8px 18px -12px rgba(27, 42, 74, .6); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent2); box-shadow: 0 0 0 3px rgba(143, 178, 217, .35); }
+  input, select, textarea { transition: border-color .15s, box-shadow .15s; }
+  .toast { transform: translateY(-8px); transition: opacity .2s, transform .2s; }
+  .toast.show { transform: none; }
+  tbody tr { transition: background .12s; }
+  tbody tr:hover { background: var(--chip); }
+  @keyframes wRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
 <h1>音游查分 <small id="ver"></small></h1>
-<p class="lead">舞萌 DX · 中二节奏 · 音击 查分，SDVX / PJSK 谱面图，群里猜歌小游戏。这一页管通用的东西；各游戏的绑定、曲库在「舞萌 DX」「中二节奏」两个页面里（AstrBot「插件 → 音游查分 → 详情」能打开）。</p>
-<nav><a href="#s-over">总览</a><a href="#s-log">最近更新</a><a href="#s-how">指令</a><a href="#s-games">小游戏</a><a href="#s-llm">自然语言开关</a><a href="#s-ds">定数默认区服</a><a href="#s-nl">意图测试</a><a href="#s-acc">查账号</a><a href="#s-help">帮助图预览</a><a href="#s-assets">素材</a></nav>
+<p class="lead">舞萌 DX · 中二节奏 · 音击私服 自动查分，SDVX / 音击官服 在传分网站手动传分，中二 / 音击 / SDVX / PJSK 谱面图，群里猜歌小游戏。这一页管通用的东西；各游戏的绑定、曲库在「舞萌 DX」「中二节奏」两个页面里（AstrBot「插件 → 音游查分 → 详情」能打开）。</p>
+<nav><a href="#s-over">总览</a><a href="#s-log">最近更新</a><a href="#s-how">指令</a><a href="#s-sb">传分网站</a><a href="#s-games">小游戏</a><a href="#s-alias">别名收集</a><a href="#s-llm">自然语言开关</a><a href="#s-ds">定数默认区服</a><a href="#s-nl">意图测试</a><a href="#s-acc">查账号</a><a href="#s-help">帮助图预览</a><a href="#s-assets">素材</a></nav>
 
 <section id="s-over">
   <h2>总览</h2>
@@ -119,30 +157,94 @@
 
 <section id="s-how">
   <h2>指令怎么读</h2>
-  <p class="desc">指令 = <code>/游戏 动作 [区服]</code>，例如 <code>/mai b50 日服</code>。区服写在最后，不写就查该用户上一次查的那个服。独立指令（<code>/谱面</code>、<code>/猜歌</code>、<code>/网页绑定</code>、<code>/查分 …</code>）不用加游戏。打错、没空格也认（<code>/舞萌b50</code>）。</p>
+  <p class="desc">指令 = <code>/游戏 动作 [区服]</code>，例如 <code>/mai b50 日服</code>。区服写在最后，不写就查该用户上一次查的那个服。独立指令（<code>/谱面</code>、<code>/猜歌</code>、<code>/网页绑定</code>、<code>/传分</code>、<code>/传</code>、<code>/批量传</code>、<code>/查分 …</code>）不用加游戏。打错、没空格也认（<code>/舞萌b50</code>）。</p>
   <table>
     <tr><th style="width:90px">游戏</th><th style="width:80px">前缀</th><th>查成绩</th><th>查歌 · 定数</th><th>谱面图</th><th>小游戏</th><th>区服</th><th>详细帮助</th></tr>
     <tr><td><span class="g mai">舞萌</span></td><td><code>/mai</code></td><td class="ok">✓</td><td class="ok">✓</td><td>—</td><td class="ok">✓</td><td>国际服 · 日服 · 国服 · 私服</td><td><code>/mai 帮助</code></td></tr>
     <tr><td><span class="g chu">中二</span></td><td><code>/chu</code></td><td class="ok">✓</td><td class="ok">✓</td><td class="ok">✓</td><td class="ok">✓</td><td>国际服 · 日服 · 国服 · 私服</td><td><code>/chu 帮助</code></td></tr>
-    <tr><td><span class="g geki">音击</span></td><td><code>/geki</code></td><td>私服 AquaDX</td><td>—</td><td class="ok">✓</td><td class="ok">✓</td><td>AquaDX</td><td><code>/geki 帮助</code></td></tr>
-    <tr><td><span class="g sdvx">SDVX</span></td><td><code>/sdvx</code></td><td>—</td><td>—</td><td class="ok">✓</td><td class="ok">✓</td><td>—</td><td><code>/sdvx 帮助</code></td></tr>
+    <tr><td><span class="g geki">音击</span></td><td><code>/geki</code></td><td>私服 AquaDX 自动查 · 官服 SEGA ID 自动查（要 Standard）/ 手动传分</td><td>传分网站（定数开关）</td><td class="ok">✓</td><td class="ok">✓</td><td>官服 · AquaDX</td><td><code>/geki 帮助</code></td></tr>
+    <tr><td><span class="g sdvx">SDVX</span></td><td><code>/sdvx</code></td><td>手动传分（可导官网 CSV）· VF 50 图</td><td>传分网站（∇ 小数等级）</td><td class="ok">✓</td><td class="ok">✓</td><td>官服（不用绑定）</td><td><code>/sdvx 帮助</code></td></tr>
     <tr><td><span class="g pjsk">PJSK</span></td><td><code>/pjsk</code></td><td>—</td><td>—</td><td class="ok">✓</td><td class="ok">✓</td><td>—</td><td><code>/pjsk 帮助</code></td></tr>
   </table>
   <p class="desc" style="margin-top:10px">用户看到的帮助：<code>/查分 帮助</code> 是一屏大字总览，只指路；<code>/mai</code>、<code>/chu</code>、<code>/geki</code>、<code>/sdvx</code>、<code>/pjsk 帮助</code> 是各游戏自己的页，<code>/谱面 帮助</code> 是 sdvx.in 谱面图（四个游戏一起），<code>/猜歌 帮助</code> 小游戏，<code>/查分 帮助 更多</code> 绑定和其他；<code>/查分 帮助 全</code> 拼成一张长图。下面「帮助图预览」能看每一页。自然语言（@机器人 帮我看下舞萌日服 b50）<b>默认关闭</b>，按群打开。</p>
 </section>
 
+<section id="s-sb">
+  <h2>传分网站（SDVX / 音击官服）</h2>
+  <p class="desc">官服的成绩网站不开会员看不到成绩，所以 SDVX 和音击官服是玩家自己传分：QQ 里 <code>/传分</code> 拿登录链接（30 天免登录；群里发的链接点开后要本人回 <code>/传分 确认 码</code> 才登录），或 <code>/传</code>、<code>/批量传</code> 直接在聊天里传；网页绑定页上选 SDVX / 音击官服也能直接进。网站和网页绑定是同一个服务、同一个公网地址（路径 <code>/scores</code>）。曲库 SDVX 来自 Tachi、音击来自 otoge-db，每天自动更新；曲绘从 sdvx.in 拿，缩成小图缓存在本机。<br>音击官服开了 オンゲキ-NET Standard（330 円/月）的人可以在网页绑定填 SEGA ID + 密码，之后 <code>/geki b50</code> 自动先同步（<code>/geki 同步</code> 手动拉，5 分钟冷却），密码加密存在 <code>geki_official/</code>。<b>这个自动查还没用真账号测过</b>，出问题的话日志里搜 <code>geki official</code>。SDVX 开了 e-amusement 会员的可以在「批量传分」直接选官网导出的 CSV。</p>
+  <div class="grid" id="sb-over"></div>
+  <div class="row" style="margin-top:8px"><button id="sb-refresh">马上更新两边曲库</button> <a id="sb-open" target="_blank" rel="noopener" class="hint"></a></div>
+  <h3 style="margin:14px 0 6px;font-size:15px">传过分的人 <span class="hint" id="sb-count"></span></h3>
+  <div id="sb-users"></div>
+  <p class="hint">成绩存在插件数据目录 <code>scorebook/users/&lt;QQ&gt;.json</code>，每人一个文件。「踢下线」= 让这个人在所有设备上的传分网站登录失效（他自己发 <code>/传分 登出</code> 也一样）。</p>
+</section>
+
 <section id="s-games">
   <h2>小游戏</h2>
-  <p class="desc">群里 <code>/猜歌</code>（开字母）、<code>/猜曲绘</code>、<code>/猜谱面</code>；一个群同时一局，没人说话会自动结束（开字母 20 分钟、曲绘 / 谱面 8 分钟）。这里能看现在哪些群在玩、强制结束一局（局面只在内存里，重载插件也会清掉）。总开关 <code>games_enabled</code> 在插件配置里。</p>
+  <p class="desc">群里 <code>/猜歌</code>（开字母）、<code>/猜曲绘</code>、<code>/猜谱面</code>；一个群同时一局，没人说话会自动结束（开字母 20 分钟、曲绘 / 谱面 8 分钟）。这里能看现在哪些群在玩、强制结束一局（局面只在内存里，重载插件也会清掉）。</p>
+  <div class="swrow"><label class="sw"><input type="checkbox" id="gm-on"><i></i></label><b>小游戏总开关</b>
+    <span class="hint" id="gm-src"></span></div>
+  <p class="hint">在这里切马上生效，不重载插件；关掉会把正在玩的局一起结束。每个群「热闹时邀请小游戏」在下面「自然语言开关」那张表里。</p>
   <div id="games-list"></div>
 </section>
 
+<section id="s-alias">
+  <h2>别名收集（猜歌投票）</h2>
+  <p class="desc">群里猜歌时有人用原名猜中，我会让大模型从这一局没猜中的消息里挑像外号的，在群里投票（回 y / n）。这里改的设置<b>马上生效，不会重载插件</b>，正在玩的猜歌局不受影响。</p>
+  <div class="row">
+    <label><input type="checkbox" id="al-on"> 开启</label>
+    <label>几票 y 通过 <input type="number" id="al-yes" min="1" style="width:64px"></label>
+    <label>几票 n 否决 <input type="number" id="al-no" min="1" style="width:64px"></label>
+    <label>投票有效 <input type="number" id="al-min" min="1" style="width:64px"> 分钟</label>
+  </div>
+  <div class="row">
+    <label>每群每小时最多问模型 <input type="number" id="al-cap" min="0" style="width:72px"> 次（0 = 不限）</label>
+    <label>模型把握 ≥ <input type="number" id="al-th" min="0" max="1" step="0.05" style="width:72px"></label>
+    <label>判断用的模型 <select id="al-prov"></select></label>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" id="al-ask"> 模型没找到时问群友「这首叫什么」</label>
+    <label>已有外号少于 <input type="number" id="al-askmax" min="0" style="width:64px"> 个才问（0 = 都问）</label>
+    <label>同一个群 <input type="number" id="al-askcd" min="0" style="width:64px"> 分钟内最多问一次（0 = 不限）</label>
+    <button id="al-save">保存</button>
+  </div>
+  <p class="hint">群友 3 分钟内回「别名 外号」（几首时「别名 序号 外号」）就发起投票；只认这个开头，别的聊天不会被当成外号。和原名、已有外号、别的歌的外号重了会直接说明，不发起。</p>
+  <p class="hint" id="al-prov-note"></p>
+  <h3 style="margin:14px 0 6px;font-size:15px">正在投的</h3>
+  <div id="al-votes"></div>
+  <h3 style="margin:14px 0 6px;font-size:15px">本 bot 收录的外号 <span class="hint" id="al-counts"></span></h3>
+  <p class="hint">「加别名」加的和投票通过的都在这；查谱面时也会列出来。已按游戏导出到 <code id="al-dir"></code>（每个游戏一个 JSON + README，CC0，不含 QQ 号 / 群号）。</p>
+  <div class="tabs" id="al-tabs"></div>
+  <div class="row"><input type="text" id="al-q" placeholder="搜歌名或外号"></div>
+  <div id="al-lib"></div>
+  <h3 style="margin:14px 0 6px;font-size:15px">投票记录</h3>
+  <div id="al-hist"></div>
+</section>
+
 <section id="s-llm">
-  <h2>自然语言开关</h2>
-  <p class="desc">打开后，这个群里 @机器人 说「帮我查一下中二 b30」之类的话会先过关键词粗筛，命中才调用大模型判断意图（每次一个短请求）。没打开的群完全不调用。</p>
-  <div class="row"><label>群号 <input type="text" id="g-id" placeholder="留空 = 私聊"></label>
-    <button id="g-on">开启</button><button class="ghost" id="g-off">关闭</button></div>
+  <h2>自然语言开关 · 热闹时邀请小游戏</h2>
+  <p class="desc"><b>自然语言</b>：这个群里 @机器人 说「帮我查一下中二 b30」之类的话，先过关键词粗筛，命中才调用大模型判断意图（每次一个短请求）；没打开的群完全不调用。<br>
+  <b>热闹时邀请</b>：群里聊得热闹、又没人在玩的时候，轻轻问一句「要不要来一局猜歌？发 /猜歌 舞萌 就开」；群里在聊哪个音游就推荐哪个。全在本地判断，不花 token，不 @ 人。两个开关都是每个群单独开，默认都关。</p>
+  <div class="row"><label>群号 <input type="text" id="g-id" placeholder="输入群号"></label>
+    <button id="g-add">加到列表</button><button class="ghost" id="g-names">重新读取群名</button></div>
   <div id="g-list"></div>
+  <h3 style="margin:16px 0 6px;font-size:15px">邀请的规矩（所有群共用）</h3>
+  <div class="row">
+    <label>最近 <input type="number" id="iv-window_min" min="1" style="width:60px"> 分钟里</label>
+    <label>≥ <input type="number" id="iv-min_msgs" min="3" style="width:60px"> 条消息</label>
+    <label>≥ <input type="number" id="iv-min_people" min="2" style="width:60px"> 个人在说话 = 热闹</label>
+  </div>
+  <div class="row">
+    <label>同一个群至少隔 <input type="number" id="iv-cooldown_min" min="10" style="width:70px"> 分钟</label>
+    <label>每天最多 <input type="number" id="iv-daily_max" min="1" style="width:60px"> 次</label>
+    <label>发了 <input type="number" id="iv-answer_min" min="1" style="width:60px"> 分钟没人开局，下次间隔翻倍（最多 ×8）</label>
+  </div>
+  <div class="row">
+    <label>一局结束后 <input type="number" id="iv-after_game_min" min="0" style="width:60px"> 分钟内不问</label>
+    <label><input type="number" id="iv-quiet_start" min="0" max="23" style="width:56px"> 点到 <input type="number" id="iv-quiet_end" min="0" max="23" style="width:56px"> 点不发（插件配置的时区）</label>
+    <button id="iv-save">保存</button>
+  </div>
+  <p class="hint">有人接了（邀请后开了局）间隔就恢复正常；群里正在玩、正在投别名票的时候也不会问。</p>
 </section>
 
 <section id="s-ds">
@@ -204,6 +306,32 @@ window.addEventListener("unhandledrejection", (e) => { const t = document.getEle
   await B.ready();
   const get = (ep, q) => B.apiGet("core/" + ep, q || {});
   const post = (ep, b) => B.apiPost("core/" + ep, b || {});
+  const IV_KEYS = ["window_min", "min_msgs", "min_people", "cooldown_min", "daily_max", "answer_min", "after_game_min", "quiet_start", "quiet_end"];
+  function fillInvite(c) { IV_KEYS.forEach(k => { if (c[k] !== undefined) $("iv-" + k).value = c[k]; }); }
+  const sw = (attrs, on) => `<label class="sw"><input type="checkbox" ${attrs} ${on ? "checked" : ""}><i></i></label>`;
+  function renderGroups(S) {
+    const gs = S.groups || [];
+    const st = (x) => { const s = x.invite_state || {}; if (!x.invite) return "";
+      return `今天邀请 ${s.sent_today || 0} 次` + (s.last_ago_min != null ? ` · 上次 ${s.last_ago_min} 分钟前` : "")
+        + (s.backoff > 1 ? ` · 间隔 ×${s.backoff}` : "") + (s.waiting ? " · 等人开局中" : "")
+        + ` · 最近 ${s.recent || 0} 条 / ${s.people || 0} 人`; };
+    $("g-list").innerHTML = `<table class="gtable"><tr><th>群</th><th>自然语言</th><th>热闹时邀请小游戏</th><th></th></tr>
+      <tr><td>私聊</td><td>${sw('data-k="llm" data-g=""', S.private_llm)}</td><td class="hint">只在群里</td><td></td></tr>
+      ${gs.map(x => `<tr><td><code>${esc(x.group)}</code>${x.name ? `<span class="gname">${esc(x.name)}</span>` : ""}</td>
+        <td>${sw(`data-k="llm" data-g="${esc(x.group)}"`, x.llm)}</td>
+        <td>${sw(`data-k="invite" data-g="${esc(x.group)}"`, x.invite)} <span class="st">${esc(st(x))}</span></td>
+        <td>${x.llm || x.invite ? "" : `<button class="ghost" data-rm="${esc(x.group)}">移出列表</button>`}</td></tr>`).join("")}</table>`
+      + (gs.length ? "" : `<p class="hint">还没有群。上面输入群号点「加到列表」，再打开开关。</p>`);
+    document.querySelectorAll("#g-list .sw input").forEach(inp => inp.onchange = async () => {
+      inp.disabled = true;
+      const k = inp.dataset.k, g = inp.dataset.g, on = inp.checked;
+      try { await post(k === "llm" ? "llm" : "invite", {group: g, on});
+            toast((k === "llm" ? "自然语言" : "热闹时邀请") + (on ? "已开启" : "已关闭")); }
+      catch (e) { inp.checked = !on; toast("没改成：" + (e.message || e)); }
+      finally { inp.disabled = false; }
+    });
+    document.querySelectorAll("#g-list [data-rm]").forEach(b => b.onclick = async () => { await post("group/remove", {group: b.dataset.rm}); load(); });
+  }
   async function load() {
     const S = await get("status");
     $("ver").textContent = "v" + S.version + " · " + S.bot_name;
@@ -212,9 +340,12 @@ window.addEventListener("unhandledrejection", (e) => { const t = document.getEle
     $("overview").innerHTML = `
       <div class="stat mai"><div class="k">舞萌 DX 曲库</div><div class="v">${m.songs} 首</div><div class="s">国际服 ${esc(m.versions.intl)} · 日服 ${esc(m.versions.jp)} · 国服 ${esc(m.versions.cn)}<br>绑定用户 ${m.users}</div></div>
       <div class="stat chu"><div class="k">中二节奏曲库</div><div class="v">${c.songs} 首</div><div class="s">国际服 ${esc(c.version)} · 日服定数 ${c.jp_consts}（${esc(c.jp_version)}）· 国服定数 ${c.cn_consts}<br>国际服绑定 ${c.intl_users} · 国服绑定 ${c.cn_users}</div></div>
-      <div class="stat geki"><div class="k">音击（私服）</div><div class="v">${g.songs} 首</div><div class="s">sdvx.in 曲目 ${g.songs} · 定数 ${g.consts}<br>私服绑定：AquaDX ${pv.aqua ?? 0} · RinNET ${pv.rin ?? 0} · MuNET ${pv.munet ?? 0}</div></div>
+      <div class="stat geki"><div class="k">音击（私服查分 · 谱面）</div><div class="v">${g.songs} 首</div><div class="s">sdvx.in 曲目 ${g.songs} · 定数 ${g.consts}<br>私服绑定：AquaDX ${pv.aqua ?? 0} · RinNET ${pv.rin ?? 0} · MuNET ${pv.munet ?? 0}</div></div>
+      ${(() => { const sb = S.scorebook || {}, u = sb.users || {}, so = sb.songs || {}, w = sb.web || {};
+        return `<div class="stat sdvx"><div class="k">传分网站（SDVX / 音击官服）</div><div class="v">${(u.sdvx || 0) + (u.geki || 0)} 人次</div><div class="s">SDVX ${u.sdvx || 0} 人 · 音击 ${u.geki || 0} 人<br>曲库 SDVX ${so.sdvx || 0} 首 · 音击 ${so.geki || 0} 首</div></div>
+        <div class="stat"><div class="k">网页绑定 / 传分网站</div><div class="v">${w.running ? "<span class=ok>在运行</span>" : (w.enabled ? "<span class=bad>没起来</span>" : "<span class=bad>关了</span>")}</div><div class="s">${w.url ? esc(w.url) : "<span class=bad>没配公网地址</span>（配置 bind_web_url）"}<br>本机端口 ${esc(w.port ?? "-")} · 地址来自 ${esc(w.from || "")}</div></div>`; })()}
       <div class="stat chart"><div class="k">谱面图（sdvx.in）</div><div class="v">${ch.chu + ch.geki + ch.sdvx + ch.pjsk} 首</div><div class="s">中二 ${ch.chu} · 音击 ${ch.geki} · SDVX ${ch.sdvx} · PJSK ${ch.pjsk}<br>本地图片 ${ch.images} 张</div></div>
-      <div class="stat mini"><div class="k">小游戏</div><div class="v">${mg.sessions.length} 局在玩</div><div class="s">总开关：${mg.enabled ? "<span class=ok>开</span>" : "<span class=bad>关</span>"}<br>猜歌 · 猜曲绘 · 猜谱面</div></div>
+      <div class="stat mini"><div class="k">小游戏</div><div class="v">${mg.sessions.length} 局在玩</div><div class="s">总开关：${mg.enabled ? "<span class=ok>开</span>" : "<span class=bad>关</span>"}<br>热闹时邀请：${(S.groups || []).filter(x => x.invite).length} 个群</div></div>
       <div class="stat"><div class="k">自然语言</div><div class="v">${Object.values(S.llm_groups).filter(Boolean).length} 个群开启</div><div class="s">私聊：${S.private_llm ? "开" : "关"} · 需要 @：${S.nl.require_wake ? "是" : "否"}<br>模型：${esc(S.nl.provider)}</div></div>
       <div class="stat"><div class="k">图片缓存</div><div class="v">${S.imgcache.mb} MB</div><div class="s">${S.imgcache.files} 张（帮助图、B50、查歌卡等）<br>换素材会自动清空</div></div>`;
     $("games-list").innerHTML = mg.sessions.length ? `<table><tr><th>群 / 会话</th><th>玩法</th><th>游戏</th><th>范围</th><th>进度</th><th>开了多久</th><th>没人说话</th><th></th></tr>` +
@@ -231,18 +362,119 @@ window.addEventListener("unhandledrejection", (e) => { const t = document.getEle
                                              : `<span class=bad>未配置</span>`;
     $("lxo-redirect").textContent = oa.redirect || "（先在配置里填好网页绑定的公网地址 bind_web_url）";
     $("migration").textContent = "旧插件数据迁移：" + Object.entries(S.migration).map(([g, v]) => `${g === "mai" ? "舞萌" : "中二"} ${v}`).join("；");
-    const rows = Object.entries(S.llm_groups).map(([g, on]) => `<tr><td>${esc(g)}</td><td class="${on ? "ok" : ""}">${on ? "开" : "关"}</td></tr>`).join("");
-    $("g-list").innerHTML = `<table><tr><th>群号</th><th>自然语言</th></tr><tr><td>私聊</td><td class="${S.private_llm ? "ok" : ""}">${S.private_llm ? "开" : "关"}</td></tr>${rows}</table>`;
+    renderGroups(S);
+    $("gm-on").checked = !!mg.enabled;
+    $("gm-src").textContent = mg.from_webui ? "" : "（现在跟着插件配置 games_enabled；在这里切一次以后就以这里为准）";
+    fillInvite(S.invite_cfg || {});
     $("ds-sel").innerHTML = Object.entries(S.catalog_servers).map(([g, list]) => `<div class="row"><b style="width:90px">${g === "mai" ? "舞萌 DX" : "中二节奏"}</b>
       <select data-game="${g}" class="ds">${list.map(s => `<option value="${s.key}" ${S.catalog_server[g] === s.key ? "selected" : ""}>${s.name}</option>`).join("")}</select></div>`).join("");
     document.querySelectorAll(".ds").forEach(sel => sel.onchange = async () => { await post("catalog_server", {game: sel.dataset.game, server: sel.value}); toast("已保存"); });
   }
-  const setLlm = async (on) => { await post("llm", {group: $("g-id").value.trim(), on}); toast(on ? "已开启" : "已关闭"); load(); };
-  $("g-on").onclick = () => setLlm(true);
-  $("g-off").onclick = () => setLlm(false);
+  $("g-add").onclick = async () => {
+    const g = $("g-id").value.trim();
+    if (!/^\d+$/.test(g)) { toast("群号应该是数字"); return; }
+    await post("group/add", {group: g}); $("g-id").value = ""; toast("加好了，打开需要的开关"); load();
+  };
+  $("g-names").onclick = async () => { await post("group/names"); toast("已重新读取"); load(); };
+  $("gm-on").onchange = async (e) => {
+    e.target.disabled = true;
+    try { await post("games/switch", {on: e.target.checked}); toast(e.target.checked ? "小游戏已开启" : "小游戏已关闭"); }
+    finally { e.target.disabled = false; load(); }
+  };
+  $("iv-save").onclick = async () => {
+    const vals = {}; IV_KEYS.forEach(k => vals[k] = Number($("iv-" + k).value));
+    const r = await post("invite/settings", {settings: vals}); toast("已保存"); fillInvite(r.settings);
+  };
   $("nl-go").onclick = async () => { const r = await post("nl", {text: $("nl-text").value, llm: $("nl-llm").checked}); $("nl-out").textContent = JSON.stringify(r, null, 2); };
   $("acc-go").onclick = async () => { const r = await post("accounts", {qq: $("acc-qq").value.trim()}); $("acc-out").textContent = r.text; };
   $("help-go").onclick = async () => { $("help-img").textContent = "生成中…"; const r = await get("help", {topic: $("help-topic").value}); $("help-img").innerHTML = `<img src="${r.image}" style="max-width:100%;border-radius:12px">`; };
+
+
+  // ---------- 传分网站 ----------
+  async function loadScorebook() {
+    const R = await get("scorebook");
+    const w = R.web || {}, C = R.catalogs || {};
+    const cat = (g, name, cls) => { const c = C[g] || {};
+      return `<div class="stat ${cls}"><div class="k">${name} 曲库</div><div class="v">${c.songs || 0} 首</div><div class="s">${c.charts || 0} 张谱面 · 生成于 ${esc(c.built || "-")}<br>`
+        + `上次更新 ${esc(c.last_refresh || "（这次运行还没更新过）")} · 网站外号 ${c.aliases || 0} 个`
+        + (c.error ? `<br><span class=bad>${esc(c.error)}</span>` : "") + `</div></div>`; };
+    $("sb-over").innerHTML = cat("sdvx", "SDVX（Tachi）", "sdvx") + cat("geki", "音击（otoge-db）", "geki")
+      + `<div class="stat"><div class="k">曲绘缓存</div><div class="v">${R.jackets} 张</div><div class="s">160px 缩略图，网页滚到才拉<br>在线登录 ${R.sessions} 个</div></div>`
+      + `<div class="stat geki"><div class="k">音击官服自动查</div><div class="v">${R.geki_official || 0} 人</div><div class="s">绑了 SEGA ID 的人数<br><span class=bad>还没实测</span></div></div>`;
+    $("sb-open").innerHTML = w.scores_url ? `打开传分网站：${esc(w.scores_url)}` : `<span class=bad>没配公网地址，传分网站和网页绑定都用不了（配置里填 bind_web_url）</span>`;
+    if (w.scores_url) $("sb-open").href = w.scores_url; else $("sb-open").removeAttribute("href");
+    $("sb-count").textContent = `${R.users.length} 人`;
+    $("sb-users").innerHTML = R.users.length ? `<table><tr><th>QQ</th><th>名字</th><th>SDVX</th><th>音击</th><th>音击官服</th><th>最近传分</th><th>在线登录</th><th></th></tr>` +
+      R.users.map(u => `<tr><td><code>${esc(u.qq)}</code></td><td>${esc(u.name)}</td>
+        <td>${u.sdvx ? `${u.sdvx} 张 · VF <b>${esc(u.vf)}</b>` : "—"}</td><td>${u.geki ? `${u.geki} 张 · rating <b>${esc(u.rating)}</b>` : "—"}</td><td>${esc(u.official || "—")}</td>
+        <td>${esc(u.updated || "—")}</td><td>${u.sessions}</td>
+        <td>${u.sessions ? `<button class="ghost" data-uid="${esc(u.uid)}">踢下线</button>` : ""}</td></tr>`).join("") + `</table>`
+      : `<p class="hint">还没有人传过分。</p>`;
+    document.querySelectorAll("#sb-users button").forEach(b => b.onclick = async () => {
+      if (!confirm("让这个人所有设备上的传分网站登录失效？")) return;
+      const r = await post("scorebook/logout", {uid: b.dataset.uid}); toast(`踢下线了 ${r.dropped} 个登录`); loadScorebook(); });
+  }
+  $("sb-refresh").onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = "更新中…（要十几秒）";
+    try {
+      const r = await post("scorebook/refresh");
+      toast(Object.entries(r).map(([g, v]) => `${g === "sdvx" ? "SDVX" : "音击"}：${v.ok ? v.songs + " 首" : "失败 " + v.error}`).join("；"), Object.values(r).some(v => !v.ok));
+    } finally { e.target.disabled = false; e.target.textContent = "马上更新两边曲库"; loadScorebook(); }
+  };
+
+  // ---------- 别名收集 ----------
+  const GN = {mai: "舞萌", chu: "中二", geki: "音击", sdvx: "SDVX", pjsk: "PJSK"};
+  const RES = {pass: "<span class=ok>通过</span>", reject: "<span class=bad>否决</span>", expired: "过期", llm_no: "<span class=hint>模型说不是</span>"};
+  let AL = null, alGame = "mai";
+  function drawLib() {
+    if (!AL) return;
+    const q = $("al-q").value.trim().toLowerCase();
+    $("al-tabs").innerHTML = Object.keys(GN).map(g => `<button class="${g === alGame ? "" : "off"}" data-g="${g}">${GN[g]} ${AL.counts[g] || 0}</button>`).join("");
+    document.querySelectorAll("#al-tabs button").forEach(b => b.onclick = () => { alGame = b.dataset.g; drawLib(); });
+    const songs = (AL.library[alGame] || []).filter(s => !q || s.title.toLowerCase().includes(q) || s.aliases.some(a => a.alias.toLowerCase().includes(q)));
+    $("al-lib").innerHTML = songs.length ? `<table><tr><th>歌</th><th>ID</th><th>外号</th></tr>` + songs.map((s, i) => `<tr><td>${esc(s.title)}</td>
+      <td class="hint">${Object.entries(s.ids).map(([k, v]) => esc(k + " " + v)).join("<br>")}</td>
+      <td>${s.aliases.map((a, j) => `<span class="pill">${esc(a.alias)}${a.source === "vote" ? ` <span class="hint">投票 ${a.votes ? a.votes.yes + ":" + a.votes.no : ""}</span>` : ""}
+        <a href="#" class="al-del" data-i="${i}" data-j="${j}" title="删掉" style="color:var(--bad);text-decoration:none">×</a></span>`).join(" ")}</td></tr>`).join("") + `</table>`
+      : `<p class="hint">这个游戏还没有本机收录的外号。</p>`;
+    document.querySelectorAll(".al-del").forEach(a => a.onclick = async (e) => {
+      e.preventDefault();
+      const s = songs[+a.dataset.i], al = s.aliases[+a.dataset.j];
+      if (!confirm(`删掉「${al.alias}」= 《${s.title}》？`)) return;
+      await post("aliases/delete", {game: alGame, ids: s.ids, alias: al.alias}); toast("删掉了"); loadAliases();
+    });
+  }
+  async function loadAliases() {
+    AL = await get("aliases");
+    const S = AL.settings;
+    $("al-on").checked = !!S.alias_collect_enabled; $("al-yes").value = S.alias_vote_yes; $("al-no").value = S.alias_vote_no;
+    $("al-min").value = S.alias_vote_minutes; $("al-cap").value = S.alias_checks_per_hour; $("al-th").value = S.alias_llm_threshold;
+    $("al-ask").checked = !!S.alias_ask_enabled; $("al-askcd").value = S.alias_ask_cooldown_minutes;
+    $("al-askmax").value = S.alias_ask_max_known;
+    $("al-prov").innerHTML = `<option value="">自动（挑名字带 flash 的）</option>` + AL.providers.map(p => `<option value="${esc(p.id)}" ${p.id === S.alias_provider_id ? "selected" : ""}>${esc(p.id)}${p.model ? "（" + esc(p.model) + "）" : ""}</option>`).join("");
+    $("al-prov-note").textContent = "现在实际用的：" + (AL.auto_provider || "「自然语言」那个模型 / 当前对话模型");
+    $("al-votes").innerHTML = AL.votes.length ? `<table><tr><th>群</th><th>外号</th><th>票</th><th>剩</th><th></th></tr>` + AL.votes.map(v => `<tr>
+      <td><code>${esc(v.origin)}</code>${v.queued ? ` <span class="hint">后面还排着 ${v.queued} 个</span>` : ""}</td>
+      <td><span class="g ${v.game}">${GN[v.game] || v.game}</span> 「${esc(v.alias)}」= 《${esc(v.title)}》 <span class="hint">${esc(v.reason)}</span></td>
+      <td>y ${v.yes} · n ${v.no}</td><td>${v.left_min} 分钟</td>
+      <td><button data-o="${esc(v.origin)}" data-r="pass">直接通过</button><button class="danger" data-o="${esc(v.origin)}" data-r="reject">否决</button><button class="ghost" data-o="${esc(v.origin)}" data-r="cancel">取消</button></td></tr>`).join("") + `</table>`
+      : `<p class="hint">现在没有在投的。</p>`;
+    document.querySelectorAll("#al-votes button").forEach(b => b.onclick = async () => { await post("aliases/vote", {origin: b.dataset.o, result: b.dataset.r}); toast("好了"); loadAliases(); });
+    $("al-counts").textContent = Object.entries(AL.counts).map(([g, n]) => `${GN[g]} ${n}`).join(" · ");
+    $("al-dir").textContent = AL.export_dir;
+    $("al-hist").innerHTML = AL.history.length ? `<table><tr><th>时间</th><th>外号</th><th>结果</th><th>票</th></tr>` + AL.history.map(h => `<tr><td>${esc(h.date)}</td>
+      <td><span class="g ${h.game}">${GN[h.game] || h.game}</span> 「${esc(h.alias)}」= 《${esc(h.title)}》</td><td>${RES[h.result] || esc(h.result)}</td><td>y ${h.yes} · n ${h.no}</td></tr>`).join("") + `</table>`
+      : `<p class="hint">还没投过。</p>`;
+    drawLib();
+  }
+  $("al-q").oninput = drawLib;
+  $("al-save").onclick = async () => {
+    await post("aliases/settings", {alias_collect_enabled: $("al-on").checked, alias_vote_yes: +$("al-yes").value, alias_vote_no: +$("al-no").value,
+      alias_vote_minutes: +$("al-min").value, alias_checks_per_hour: +$("al-cap").value, alias_llm_threshold: +$("al-th").value, alias_provider_id: $("al-prov").value,
+      alias_ask_enabled: $("al-ask").checked, alias_ask_cooldown_minutes: +$("al-askcd").value,
+      alias_ask_max_known: +$("al-askmax").value});
+    toast("已保存，马上生效"); loadAliases();
+  };
 
   // ---------- 素材 ----------
   let A = null, game = "mai", sel = null;
@@ -325,6 +557,8 @@ window.addEventListener("unhandledrejection", (e) => { const t = document.getEle
   };
   $("lxo-clear").onclick = async () => { if (!confirm("清除落雪 OAuth 应用？已授权的人会查不了，直到重新配置")) return; await post("lx_oauth", {clear: true}); toast("已清除"); load(); };
   await load();
+  loadScorebook().catch(e => { $("sb-users").textContent = "传分网站信息加载失败：" + (e.message || e); });
+  loadAliases().catch(e => { $("al-lib").textContent = "别名收集加载失败：" + (e.message || e); });
   loadAssets().catch(e => { $("a-grid").textContent = "素材列表加载失败：" + (e.message || e); });
 })();
 </script>

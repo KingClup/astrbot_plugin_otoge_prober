@@ -1,6 +1,6 @@
 """RinNET 测试数据 + 假服务器。
 
-中二部分是真实数据（用户 KCrump 2026-11-07 本人登录后读的 verse-rating / profile / recent，只留成绩字段）：
+中二部分是真实数据（玩家本人登录后读的 verse-rating / profile / recent，只留成绩字段）：
   profile.playerRating 1486（游戏 2026-06 最后一次游玩时存的值），verse-rating 算出来 (51047 + 24923) / 50 = 15.19。
 舞萌部分是按 RinNET 前端代码的格式造的（这个号没有舞萌数据）。
 """
@@ -106,7 +106,7 @@ def server(calls: list | None = None, *, games=("chusan",), with_mai=False, card
             return httpx.Response(401, json={"status": {"code": 94011}})
         if path == "/api/user/me":
             cards = [{"id": 1, "extId": CARD, "default": True}] if card else []
-            return ok({"username": "KCrump", "cards": cards, "games": list(games)})
+            return ok({"username": "PlayerA", "cards": cards, "games": list(games)})
         if req.url.params.get("aimeId") != str(CARD):
             return httpx.Response(400, json={})
         if path == "/api/game/chuni/v2/profile":

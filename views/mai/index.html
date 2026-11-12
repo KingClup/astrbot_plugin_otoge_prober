@@ -7,12 +7,12 @@
 <title>舞萌查分管理</title>
 <style>
   :root {
-    --bg: #f6f3fb; --card: #ffffff; --ink: #2b2140; --sub: #7a6d93; --line: #e6def3;
-    --accent: #2878eb; --accent2: #4f9bff; --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --chip: #f1ebfd;
+    --bg: #f5f7fb; --card: #ffffff; --ink: #1b2a4a; --sub: #56637d; --line: #d8deea;
+    --accent: #1b2a4a; --accent2: #5f86b5; --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --chip: #e6effa;
   }
   html[data-theme="dark"] {
-    --bg: #17141f; --card: #221d2e; --ink: #ece6f7; --sub: #a99cc2; --line: #362d48;
-    --accent: #5a9bff; --accent2: #7fb3ff; --chip: #2e2640;
+    --bg: #0f1626; --card: #162036; --ink: #eef2f9; --sub: #9aa6bd; --line: #27324b;
+    --accent: #5f86b5; --accent2: #8fb2d9; --chip: #1a2640;
   }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 18px; background: var(--bg); color: var(--ink);
@@ -58,6 +58,30 @@
            border-radius: 10px; opacity: 0; transition: opacity .2s; max-width: 70%; z-index: 9; }
   .toast.show { opacity: .95; }
   .hint { color: var(--sub); font-size: 12px; }
+
+  /* ---- v2.3.9：和绑定网站一套的白 / 藏青 / 雾蓝，加一点动效 ---- */
+  h1 { font-family: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", STSong, SimSun, serif; font-weight: 500; letter-spacing: .06em;
+       padding-bottom: 10px; border-bottom: 4px double var(--ink); margin-bottom: 10px; }
+  section { animation: wRise .45s cubic-bezier(.2, .7, .2, 1) both; transition: border-color .2s, box-shadow .2s; }
+  section:nth-of-type(2) { animation-delay: .05s; } section:nth-of-type(3) { animation-delay: .1s; }
+  section:nth-of-type(4) { animation-delay: .15s; } section:nth-of-type(n+5) { animation-delay: .2s; }
+  section:hover { border-color: var(--accent2); box-shadow: 0 8px 22px -16px rgba(27, 42, 74, .55); }
+  section h2 { font-family: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", STSong, SimSun, serif; font-weight: 500; letter-spacing: .08em; }
+  button { transition: transform .12s, filter .15s, box-shadow .15s, background .15s; }
+  button:hover:not(:disabled) { filter: brightness(1.1); box-shadow: 0 3px 10px -4px rgba(27, 42, 74, .5); }
+  button:active:not(:disabled) { transform: scale(.96); }
+  nav a { transition: background .15s, color .15s, transform .12s; }
+  nav a:active { transform: scale(.95); }
+  .stat { transition: transform .16s, box-shadow .16s, border-color .16s; }
+  .stat:hover { transform: translateY(-2px); box-shadow: 0 8px 18px -12px rgba(27, 42, 74, .6); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent2); box-shadow: 0 0 0 3px rgba(143, 178, 217, .35); }
+  input, select, textarea { transition: border-color .15s, box-shadow .15s; }
+  .toast { transform: translateY(-8px); transition: opacity .2s, transform .2s; }
+  .toast.show { transform: none; }
+  tbody tr { transition: background .12s; }
+  tbody tr:hover { background: var(--chip); }
+  @keyframes wRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>

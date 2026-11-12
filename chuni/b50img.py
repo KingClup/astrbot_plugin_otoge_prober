@@ -215,6 +215,8 @@ def _cover(im: Image.Image, w: int, h: int) -> Image.Image:
 
 
 def _background(h: int, bg_path: Path | None) -> Image.Image:
+    if isinstance(bg_path, Image.Image):          # 已经画好的主题背景（core/themebg.py）
+        return bg_path.convert("RGBA").resize((W, h)) if bg_path.size != (W, h) else bg_path.copy()
     if bg_path is not None:
         try:
             with Image.open(bg_path) as src:

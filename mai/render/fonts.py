@@ -20,6 +20,13 @@ _CANDIDATES = {
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/System/Library/Fonts/PingFang.ttc",
     ],
+    # 宋体（帮助图的标题，和绑定网站一个味道）：Win11 自带的是 SimSun；装了 Office 会有华文中宋，更好看
+    "serif": [
+        "themes/fonts/serif.ttf", "themes/fonts/serif.otf", "themes/fonts/serif.ttc",
+        r"C:\Windows\Fonts\STZHONGS.TTF", r"C:\Windows\Fonts\simsun.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc", "/usr/share/fonts/opentype/noto/NotoSerifCJK-Medium.ttc",
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
+    ],
     "symbol": [
         r"C:\Windows\Fonts\seguisym.ttf", r"C:\Windows\Fonts\cambria.ttc", r"C:\Windows\Fonts\seguihis.ttf",
         r"C:\Windows\Fonts\malgunbd.ttf", r"C:\Windows\Fonts\msgothic.ttc", r"C:\Windows\Fonts\simsun.ttc",

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import datetime as dt
 import os
 import re
@@ -41,6 +42,9 @@ from .chart.sdvxin import SdvxIn  # noqa: E402
 from .ongeki.commands import GekiCommands  # noqa: E402
 from .games.commands import GameCommands  # noqa: E402
 from .games.sources import GameData  # noqa: E402
+from .games import aliasvote as AV  # noqa: E402
+from .games.invite import InviteWatcher, clamp_settings as invite_settings  # noqa: E402
+from .core import aliaslib as AL  # noqa: E402
 from .mai.data.fuzzy import alias_pick, decide  # noqa: E402
 from .core.prefs import GAME_NAMES, SERVER_NAMES, Prefs  # noqa: E402
 from .mai.calc.sample import THEORY_WORDS  # noqa: E402
@@ -58,6 +62,9 @@ from .chuni.service import ChuniService, Settings as ChuSettings  # noqa: E402
 from .chuni.webui import register_web_apis as chu_web_apis  # noqa: E402
 from .core.webui import CoreWebUI, ROUTES as CORE_ROUTES  # noqa: E402
 from .core.bindweb import Binder, BindWeb  # noqa: E402
+from .scorebook import service as SBS  # noqa: E402
+from .scorebook.service import ScoreBook  # noqa: E402
+from .scorebook.web import ScoreWeb  # noqa: E402
 from .core import cnupdate as CU  # noqa: E402
 from .core import changelog as CL  # noqa: E402
 from .mai.bot.commands import split_args as mai_split_args  # noqa: E402
@@ -67,7 +74,7 @@ from .core.privsrv import Hub as PrivHub, NAMES as PRIV_NAMES  # noqa: E402
 from .core.privsrv.servers import rom_label  # noqa: E402
 
 PLUGIN = "astrbot_plugin_otoge_prober"
-VERSION = "2.0.0"
+VERSION = "2.4.5"
 MAI_NAMES = ("mai", "maimai", "舞萌")
 CHU_NAMES = ("chu", "chuni", "中二")
 CORE_NAMES = ("查分", "score", "otoge")
@@ -85,6 +92,20 @@ BIND_WEB_PORT = 36199
 RESERVED_PORTS = (6185, 6195, 6196, 6199, 6099, 3000, 3001)   # AstrBot 面板 / 各平台适配器 / NapCat 常用端口
 BIND_GUIDE_WORDS = ("绑定", "bind", "登录", "绑定教程", "bindhelp", "怎么绑", "怎么绑定")
 WEB_BIND_WORDS = ("网页绑定", "网页", "web", "webbind", "绑定网页", "网页登录")
+LX_BIND_WORDS = ("落雪", "lxns", "luoxue", "落雪查分器", "水鱼", "divingfish", "df")
+UNBOUND_MARKS = ("你还没绑定", "你还没有绑定", "还没绑定", "还没有绑定")
+
+
+def bind_without_creds(game: str, rest: str) -> bool:
+    """「/mai 绑定 国服」「/chu 绑定 日服」「/mai 绑定 落雪」「/geki 绑定 aqua」：只写了区服 / 方式、没给用户名或凭据。"""
+    words = [w for w in rest.split() if w.lower() not in LX_BIND_WORDS]
+    if game == "geki":
+        return all(w.lower() in ("aqua", "aquadx", "munet", "rin", "rinnet", "私服") for w in words)
+    try:
+        _, left = (mai_split_args if game == "mai" else chu_split_server)(words)
+    except Exception:  # noqa: BLE001
+        return False
+    return not left
 
 
 class _Host:
@@ -130,8 +151,27 @@ class OtogeScore(Star):
                                     chu=self.chu)
         self.geki = GekiCommands(self.priv, self.charts, bot_name=self.bot_name,
                                  font_path=getattr(self.chu_svc.settings, "font_path", None))
+        # 传分本（SDVX / 音击官服手动传分 + 传分网站）
+        self.scorebook = ScoreBook(root, proxy=self._cfg("proxy", "") or None, geki_db=self.geki.db)
+        self.scorebook.sdvxin = self.charts.src
+        from .ongeki.official import GekiOfficial
+        self.scorebook.prefs = self.prefs
+        self.geki.prefs = self.prefs
+        self.geki_official = GekiOfficial(os.path.join(root, "geki_official"), self.scorebook,
+                                          proxy=self._cfg("proxy", "") or None)          # 音击官服 SEGA ID 自动查
         self.games = GameCommands(GameData(self), last_game=self.prefs.last_game,
                                   help=lambda: self._help_reply("games"))   # 开字母 / 猜曲绘 / 猜谱面
+        # 别名收集：有人用原名猜中 → 回看这局没猜中的短消息 → 大模型挑像外号的 → 群里投票
+        self._alias_live = self._alias_live_load(root)        # WebUI 里改的别名设置（不用重载，马上生效）
+        self.alias_votes = AV.AliasVotes(root, yes=int(self._acfg("alias_vote_yes", 3) or 3),
+                                         no=int(self._acfg("alias_vote_no", 2) or 2),
+                                         minutes=float(self._acfg("alias_vote_minutes", 10) or 10))
+        self._alias_checks: dict[str, list[float]] = {}
+        self.games.on_message_log = self._alias_log
+        self.invite = InviteWatcher()                  # 群里热闹时问一句要不要玩小游戏（每个群单独开，默认关）
+        self._group_names_at = 0.0
+        self.games.on_title_solve = self._alias_solved
+        self.games.on_alias_solve = self._alias_solved_by_alias
         self.imgcache = ImageCache(root, version=VERSION)
         self.cmd.imgcache = self.imgcache
         self.chu.imgcache = self.imgcache
@@ -161,6 +201,7 @@ class OtogeScore(Star):
             self._tasks.append(asyncio.create_task(self._bindweb_start()))
         self._tasks.append(asyncio.create_task(self.imgcache.prune_async()))
         self._tasks.append(asyncio.create_task(self._lx_oauth_loop()))
+        self._tasks.append(asyncio.create_task(self._scorebook_loop()))
         self._tasks.append(asyncio.create_task(asyncio.to_thread(self._sweep_old_temp)))
         logger.info(f"[otoge] v{VERSION} loaded · migration {self.migration} · mai {self.catalog.db.current_version}")
 
@@ -301,6 +342,21 @@ class OtogeScore(Star):
                 logger.info(f"[otoge] sdvx.in {game}: {n} songs")
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[otoge] sdvx.in {game} list failed: {type(e).__name__}: {e}")
+        self.scorebook.sync_aliases()                   # sdvx.in 的外号也给传分网站搜歌用
+
+    async def _scorebook_loop(self) -> None:
+        """传分本曲库：SDVX 从 Tachi、音击从 otoge-db，每天拉一次（失败就用旧的 / 插件自带的）。"""
+        await asyncio.sleep(90)
+        while True:
+            for game in ("sdvx", "geki"):
+                try:
+                    n = await self.scorebook.refresh(game)
+                    logger.info(f"[otoge] 传分本曲库 {game}: {n} 首")
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[otoge] 传分本曲库 {game} 更新失败（继续用旧的）：{type(e).__name__}: {e}")
+            await asyncio.sleep(3 * 3600)
 
     async def _chu_recognize(self, text: str, event=None):
         it = await NL.classify(text, await self._llm_call(event))
@@ -352,14 +408,73 @@ class OtogeScore(Star):
         if port in RESERVED_PORTS:      # 6199 = AstrBot aiocqhttp 反向 WebSocket（NapCat 连这个），绝不能占 / 暴露
             logger.warning(f"[otoge] 网页绑定端口 {port} 是 AstrBot 自己在用的，改用 {BIND_WEB_PORT}")
             port = BIND_WEB_PORT
+        self.scoreweb = ScoreWeb(self.scorebook, bot_name=self.bot_name, log=logger.info)
         return BindWeb(Binder(self), host="127.0.0.1", port=port, bot_name=self.bot_name,
-                       notify=self._notify_private, log=logger.info)
+                       notify=self._notify_private, log=logger.info, extra=[self.scoreweb])
 
     async def _bindweb_start(self) -> None:
         if await self.bindweb.start():
             logger.info(f"[otoge] 网页绑定服务：http://127.0.0.1:{self.bindweb.port} → {self.bindweb_url() or '（还没配公网地址）'}")
         else:
             logger.warning(f"[otoge] 网页绑定服务没起来（端口 {self.bindweb.port}）：{self.bindweb.error}")
+
+    # ---------- 热闹时邀请小游戏 ----------
+    def _games_on(self) -> bool:
+        v = self.prefs.games_enabled()
+        return bool(self._cfg("games_enabled", True)) if v is None else v
+
+    def _invite_cfg(self) -> dict:
+        return invite_settings(self.prefs.invite_settings())
+
+    def _invite_watch(self, event: AstrMessageEvent, ctx: Ctx, text: str) -> None:
+        try:
+            gid = str(event.get_group_id() or "")
+            if not gid or not self.prefs.invite_enabled(gid) or not self._games_on():
+                return
+            umo = event.unified_msg_origin
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            try:
+                local = datetime.now(ZoneInfo(str(self._cfg("timezone", "Asia/Shanghai"))))
+            except Exception:  # noqa: BLE001
+                local = datetime.now()
+            line = self.invite.on_message(gid, ctx.uid, text, local, self._invite_cfg(),
+                                          playing=umo in self.games.sessions, busy=self.alias_votes.busy(umo))
+            if line:
+                asyncio.create_task(self._invite_send(umo, line))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] invite check failed: {type(e).__name__}: {e}")
+
+    async def _invite_send(self, umo: str, line: str) -> None:
+        import random
+        await asyncio.sleep(random.uniform(2, 6))     # 别紧贴着上一条，像是看了一眼才说
+        if umo in self.games.sessions:
+            return                                   # 这几秒里已经有人开局了
+        try:
+            await self._notify_private(umo, line)
+            logger.info(f"[otoge] invited group {umo.rsplit(':', 1)[-1]} to a mini game")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] invite send failed: {type(e).__name__}: {e}")
+
+    async def _refresh_group_names(self, force: bool = False) -> dict[str, str]:
+        """从 QQ（OneBot get_group_list）读群名，10 分钟最多读一次；读不到就用上次存的。"""
+        import time as _t
+        if force or _t.time() - self._group_names_at > 600:
+            self._group_names_at = _t.time()
+            try:
+                for inst in getattr(self.context.platform_manager, "platform_insts", []) or []:
+                    get_client = getattr(inst, "get_client", None)
+                    client = get_client() if callable(get_client) else None
+                    if client is None or not hasattr(client, "call_action"):
+                        continue
+                    rows = await asyncio.wait_for(client.call_action("get_group_list"), timeout=8)
+                    if isinstance(rows, dict):
+                        rows = rows.get("data") or []
+                    self.prefs.set_group_names({str(r.get("group_id")): str(r.get("group_name") or "")
+                                                for r in rows or [] if isinstance(r, dict) and r.get("group_id")})
+            except Exception as e:  # noqa: BLE001
+                logger.info(f"[otoge] group names unavailable: {type(e).__name__}: {e}")
+        return self.prefs.group_names()
 
     async def _notify_private(self, umo: str, text: str, at: str = "") -> None:
         from astrbot.api.event import MessageChain
@@ -389,6 +504,20 @@ class OtogeScore(Star):
                 r.image = img
         return r
 
+    def _web_bind_confirm(self, ctx: Ctx, code: str) -> Reply:
+        """「/网页绑定 确认 1234」：群里要的绑定链接，本人回网页上显示的确认码。"""
+        if self.bindweb is None:
+            return Reply().say("网页绑定没开。")
+        if not "".join(ch for ch in code if ch.isdigit()):
+            return Reply().say("把网页上的 4 位码带上：/网页绑定 确认 1234")
+        st = self.bindweb.sessions.confirm(ctx.uid, code)
+        return Reply().say({
+            "ok": "确认好了，回到那个网页，几秒内就能往下填。网页被关掉 / 刷新了的话：用同一个浏览器再点一次那条链接。",
+            "none": "你现在没有等确认的绑定链接（可能过期了，或者已经确认过）。重新发「/网页绑定」拿链接。",
+            "wrong": "这个码不对。看一下你自己网页上显示的 4 位码再发一次（别人报给你的码不要发）。",
+            "locked": "码错太多次，这条链接我作废了。重新发「/网页绑定」拿新的。",
+        }[st])
+
     def _web_bind_text(self, event: AstrMessageEvent, ctx: Ctx, game: str = "") -> Reply:
         if self.bindweb is None:
             return Reply().say("网页绑定没开（插件配置 bind_web_enabled）。可以直接私聊发指令绑定，见「/mai 绑定」「/chu 绑定教程」")
@@ -399,9 +528,13 @@ class OtogeScore(Star):
         if group and not self._cfg("bind_web_group", True):
             return Reply().say("网页绑定链接是你个人专用的，私聊我发「/网页绑定」拿链接～")
         token = self.bindweb.sessions.issue(ctx.uid, event.unified_msg_origin, ctx.name, group=group)
-        link = f"{url}/#t={token}" + (f"&g={game}" if game in ("mai", "chu", "geki") else "")
+        link = f"{url}/#t={token}" + (f"&g={game}" if game in ("mai", "chu", "geki", "sdvx") else "")
         if group:
-            return Reply(at=ctx.uid).say(f"你的绑定链接（10 分钟内有效，请自己马上点开，绑好了我在群里说一声）：\n{link}")
+            return Reply(at=ctx.uid).say(
+                f"你的绑定链接（10 分钟内有效）：\n{link}"
+                "\n点开后网页会显示一个 4 位确认码，你自己在 QQ 回「/网页绑定 确认 码」才能往下填"
+                "（群里的链接谁都点得开，这一步是防别人替你绑）。只确认你自己屏幕上看到的码。"
+                "嫌麻烦就私聊我发 /网页绑定，私聊的链接不用确认。")
         return Reply().say(f"你的绑定链接（10 分钟内有效，只给你自己用，别转发）：\n{link}")
 
     # ---------- 国服成绩怎么更新 ----------
@@ -519,6 +652,10 @@ class OtogeScore(Star):
             return {"status": "error", "message": str(e), "data": None}
 
     async def terminate(self):
+        try:                                             # 重载 / 更新前：在玩的群先说一声、公布答案再走
+            await asyncio.wait_for(self._announce_shutdown(), 15)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] shutdown notice failed: {type(e).__name__}: {e}")
         for t in self._tasks:
             t.cancel()
         if self.bindweb is not None:
@@ -526,6 +663,109 @@ class OtogeScore(Star):
         chu_redact.uninstall()
         await self.chu_svc.close()
         await self.priv.close()
+
+    # ---------- 重载前的告别 ----------
+    SHUTDOWN_LINES = ("我要更新一下，马上回来～这局先停在这里，下次再玩！",
+                      "要重启一下下，这局只能先到这里了，等我回来再开～",
+                      "更新时间到！这局先暂停，重启完再来一局吧～")
+
+    STICKER_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+    STICKER_BYE = ("溜", "跑", "走了", "拜拜", "再见", "告辞", "下线", "睡", "晚安", "bye", "wave", "sorry",
+                   "抱歉", "对不起", "离开", "撤", "润", "88")
+
+    def _meme_roots(self) -> list[str]:
+        """表情包管理器（meme_manager）的图库：新版在它自己的 plugin_data/…/packs/，旧版在数据目录的 memes/。"""
+        data = os.path.dirname(os.path.dirname(os.path.abspath(getattr(self, "root", "") or ".")))
+        return [p for p in (os.path.join(data, "memes"), os.path.join(data, "plugin_data", "meme_manager"),
+                            os.path.join(data, "plugin_data", "astrbot_plugin_meme_manager")) if os.path.isdir(p)]
+
+    def _pick_sticker_file(self) -> str | None:
+        """从表情包管理器里挑一张：路径里带「溜了 / 再见 / 睡觉」这类再优先；
+        都没有就随便一张；表情包管理器没装就返回 None（用看板娘那张）。"""
+        import random
+        fish: list[tuple[str, str]] = []
+        other: list[tuple[str, str]] = []
+        for root in self._meme_roots():
+            for d, dirs, files in os.walk(root):
+                dirs[:] = [x for x in dirs if x.lower() not in ("backup", "temp", "tmp", "semantic_indexes", "cache")]
+                for f in files:
+                    if f.lower().endswith(self.STICKER_EXT):
+                        path = os.path.join(d, f)
+                        rel = os.path.relpath(path, root).lower()
+                        (fish if ("bye" in rel) else other).append((path, rel))
+                if len(fish) + len(other) > 5000:
+                    break
+        pool = fish or other
+        if not pool:
+            return None
+        bye = [p for p, rel in pool if any(w in rel for w in self.STICKER_BYE)]
+        return random.choice(bye or [p for p, _ in pool])
+
+    def _shutdown_sticker(self) -> tuple[str, str] | None:
+        """(base64, 来源) —— 优先表情包管理器里的图，没有就用看板娘「溜了」那张（自用版才有）。"""
+        import base64
+        from PIL import Image
+        pick = None
+        try:
+            pick = self._pick_sticker_file()
+        except Exception as e:  # noqa: BLE001
+            logger.info(f"[otoge] meme lookup failed: {type(e).__name__}: {e}")
+        if pick:
+            try:
+                with open(pick, "rb") as f:
+                    raw = f.read()
+                if len(raw) <= 2 * 1024 * 1024:            # 表情包原样发（gif 也能动）
+                    return base64.b64encode(raw).decode(), pick
+            except OSError:
+                pass
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "bind", "img", "yume-gone.webp")
+        if not os.path.exists(p):
+            return None
+        with Image.open(p) as im:
+            im = im.convert("RGBA")
+            im.thumbnail((240, 240))
+            buf = io.BytesIO()
+            im.save(buf, "PNG")
+        return base64.b64encode(buf.getvalue()).decode(), "yume-gone"
+
+    async def _announce_shutdown(self) -> None:
+        """插件被重载（更新）或 AstrBot 关掉之前：正在玩小游戏、在投别名票的群，先发一句说明 + 表情包，
+        再公布这局答案，然后才真正退出（局面只在内存里，重载后本来就没了）。"""
+        import base64
+        import random
+        from astrbot.api.event import MessageChain
+        sessions = dict(getattr(self.games, "sessions", {}) or {})
+        av = getattr(self, "alias_votes", None)
+        voting = {o for o in list(getattr(av, "active", {}) or {}) + list(getattr(av, "asks", {}) or {})} if av else set()
+        origins = list(dict.fromkeys(list(sessions) + [o for o in voting if o not in sessions]))
+        if not origins:
+            return
+        got = await asyncio.to_thread(self._shutdown_sticker)
+        sticker = got[0] if got else None
+        if got:
+            logger.info(f"[otoge] shutdown sticker: {os.path.basename(got[1])}")
+
+        async def one(origin: str) -> None:
+            head = random.choice(self.SHUTDOWN_LINES)
+            if origin not in sessions:
+                head = "我要更新一下，马上回来～正在投的别名票先作废，重启后可以再提。"
+            first = MessageChain().message(head)
+            if sticker:
+                first = first.base64_image(sticker)
+            await self.context.send_message(origin, first)
+            s = sessions.get(origin)
+            if s is None:
+                return
+            r = self.games.finish(origin, s)
+            chain = MessageChain().message("\n".join(r.texts))
+            if r.image:
+                chain = chain.base64_image(base64.b64encode(r.image).decode())
+            await asyncio.sleep(0.8)
+            await self.context.send_message(origin, chain)
+
+        results = await asyncio.gather(*(asyncio.wait_for(one(o), 10) for o in origins), return_exceptions=True)
+        bad = [r for r in results if isinstance(r, Exception)]
+        logger.info(f"[otoge] shutdown notice sent to {len(origins) - len(bad)}/{len(origins)} chats")
 
     # ---------- message helpers ----------
     def _ctx(self, event: AstrMessageEvent) -> Ctx:
@@ -655,28 +895,81 @@ class OtogeScore(Star):
             return topic_key(words[1])
         return game                                     # sdvx / pjsk 各自一页；/谱面 帮助（game=chart）才是 sdvx.in 那页
 
+    SHOW_WORDS = {
+        "sdvx": ("sdvx_ex", ("ex", "exscore", "ex分", "ex分数", "ex score")),
+        "mai": ("mai_dx", ("dx分", "dx分数", "dxscore", "dx score")),
+        "geki": ("geki_plat", ("白金分", "白金", "p分", "白金分数", "platinum", "plat")),
+    }
+
+    def _show_switch(self, ctx: Ctx, game: str, first: str, rest: str) -> Reply | None:
+        """「/sdvx ex 开|关」等：图上 / 传分网站上要不要显示这个附加分数。只认「词 + 开/关/状态」，别的照常走。"""
+        spec = self.SHOW_WORDS.get(game)
+        if spec is None:
+            return None
+        key, words = spec
+        w = first.lower()
+        tail = rest.strip().lower()
+        if w + " " + tail.partition(" ")[0] in words:          # 「ex score 关」
+            w, tail = w + " " + tail.partition(" ")[0], tail.partition(" ")[2].strip()
+        if w not in words:
+            return None
+        on = {"开": True, "开启": True, "显示": True, "on": True, "关": False, "关闭": False, "隐藏": False,
+              "不显示": False, "off": False}.get(tail)
+        if on is None and tail not in ("", "状态", "?", "？"):
+            return None
+        name = self.prefs.SHOW_KEYS[key]
+        where = {"sdvx_ex": "VF 50 图和传分网站", "mai_dx": "B50 图", "geki_plat": "B50 图和传分网站"}[key]
+        if on is None:
+            cur = self.prefs.show(ctx.uid, key)
+            return Reply().say(f"{name}：现在{'显示' if cur else '不显示'}（{where}）。"
+                               f"改：/{game} {words[0]} {'关' if cur else '开'}")
+        self.prefs.set_show(ctx.uid, key, on)
+        return Reply().say(f"好，{where}上{'会显示' if on else '不再显示'}{name}。" + (f"改回来：/{game} {words[0]} {'关' if on else '开'}"))
+
     async def _dispatch(self, event: AstrMessageEvent, game: str, argline: str) -> Reply:
         ctx = self._ctx(event)
         topic = self._help_topic(game, argline)
         if topic is not False:                          # 「/mai 帮助」「/geki」「/sdvx 帮助」「/查分 帮助 舞萌」
             return await self._help_reply(topic)
         first, _, rest = argline.strip().partition(" ")
+        if "\n" in first:                               # 「/sdvx 批量传⏎第一行…」：换行也算分隔
+            first = first.partition("\n")[0]
+            rest = argline.strip()[len(first):].lstrip(" \t")
+        sw = self._show_switch(ctx, game, first, rest)   # /sdvx ex 关、/mai dx分 开、/geki 白金分 关
+        if sw is not None:
+            return sw
+        if game in ("sdvx", "geki"):                    # 传分本：传分网站 / 聊天传分 / 手动成绩 b50
+            r = await self._scorebook_dispatch(event, ctx, game, first.lower(), rest)
+            if r is not None:
+                return r
         if game == "geki":                              # 音击：私服查分 + sdvx.in 谱面
             # 「/geki 网页绑定」「/geki 绑定」不带参数 → 绑定指南图 + 链接（网页上预选音击）
-            if first.lower() in WEB_BIND_WORDS or (first.lower() in BIND_GUIDE_WORDS and not rest.strip()
-                                                   and self.bindweb_ready()):
+            if first.lower() in WEB_BIND_WORDS or (first.lower() in BIND_GUIDE_WORDS and self.bindweb_ready()
+                                                   and bind_without_creds(game, rest)):
                 return await self._web_bind_reply(event, ctx, game)
-            return await self.geki.handle(ctx, argline)
+            r = await self._unbound_to_web(event, ctx, game, await self.geki.handle(ctx, argline))
+            if first.lower() in ("加别名", "添加别名"):
+                await asyncio.to_thread(self.alias_library)
+            return r
         if game == "core":
             return await self._core(event, ctx, argline)
+        if game == "sdvx" and first.lower() in WEB_BIND_WORDS:   # 「/sdvx 网页绑定」→ 绑定页预选 SDVX（官服 → 传分）
+            return await self._web_bind_reply(event, ctx, "sdvx")
         if game in ("sdvx", "pjsk", "chart"):           # sdvx.in chart views (no scores for these)
-            return await self.charts.handle(ctx, argline, game)
+            r = await self.charts.handle(ctx, argline, game)
+            if first.lower() in ("加别名", "添加别名"):
+                await asyncio.to_thread(self.alias_library)
+            return r
         if first.lower() in WEB_BIND_WORDS:
+            ws = rest.split()
+            if ws and ws[0].lower() in ("确认", "confirm"):
+                return self._web_bind_confirm(ctx, " ".join(ws[1:]))
             return await self._web_bind_reply(event, ctx, game)
         if first.lower() in CU.UPDATE_WORDS:            # 「/mai 更新」「/chu 更新 国服」：国服成绩怎么更新
             return await self._cn_update(ctx, game, rest)
-        # 「/mai 绑定」「/chu 绑定」「/chu 绑定教程」不带参数 → 绑定指南图 + 链接（写了区服 / 凭据的照旧走指令绑定）
-        if first.lower() in BIND_GUIDE_WORDS and not rest.strip() and self.bindweb_ready():
+        # 「/mai 绑定」「/chu 绑定 国服」「/mai 绑定 落雪」这种没给用户名 / 凭据的 → 一律引到网页绑定
+        # （图 + 本人专用链接，网页上预选这个游戏）；把用户名 / 凭据写全了的照旧走指令绑定。
+        if first.lower() in BIND_GUIDE_WORDS and self.bindweb_ready() and bind_without_creds(game, rest):
             return await self._web_bind_reply(event, ctx, game)
         if first.lower() in CHART_SUBS:
             if game == "chu":
@@ -684,7 +977,505 @@ class OtogeScore(Star):
             return Reply().say("sdvx.in 没有舞萌的谱面确认。可以查：/chu 谱面 <歌>、/geki 谱面 <歌>、/sdvx 谱面 <歌>、/pjsk 谱面 <歌>")
         self.prefs.set_last_game(ctx.uid, game)
         handler = self.cmd if game == "mai" else self.chu
-        return await handler.handle(ctx, argline)
+        r = await self._unbound_to_web(event, ctx, game, await handler.handle(ctx, argline))
+        if first.lower() in ("加别名", "添加别名", "删别名"):
+            await asyncio.to_thread(self.alias_library)
+        return r
+
+    # ---------- 传分本（SDVX / 音击官服：手动传分） ----------
+    def _scorebook_link(self, event: AstrMessageEvent, ctx: Ctx, game: str = "", rest: str = "",
+                        force: bool = False) -> Reply:
+        url = self.bindweb_url()
+        if self.bindweb is None or not url or not self.bindweb.running:
+            return Reply().say("传分网站要用网页绑定那个公网地址，bot 主人还没配好。先用聊天传分：/sdvx 传 <歌> <难度> <分数> [灯]")
+        from urllib.parse import urlencode
+        n_sess = self.scorebook.sessions.active(ctx.uid)
+        # 已经在某台设备上登录着：群里只给网址（不刷登录链接）；私聊照样带登录链接——
+        # 不然换个浏览器 / 设备点开是只读模式，bot 却说「已经登录着」，人会以为坏了（v2.3.9）。
+        if n_sess and not force and not ctx.private:
+            nav = self.scorebook.deep_link(game, rest)
+            direct = f"{url}/scores" + ("#" + urlencode(nav) if nav else "")
+            what = ""
+            if nav.get("k") or nav.get("q"):
+                song = self.scorebook.cat(game).songs.get(nav["k"]) if nav.get("k") else None
+                what = "（点开直接到：" + (song.title if song else f"搜「{nav['q']}」") + \
+                       (f" {nav['d']}" if nav.get("d") else "") + "）"
+            return Reply().say(f"传分网站{what}：\n{direct}\n你已经在 {n_sess} 个设备上登录过，在那台设备上直接打开就行。"
+                               "\n这台设备没登录过的话点开是只读模式：发「/传分 登录」要登录链接（私聊发更省事，不用确认码）。")
+        tok = self.scorebook.sessions.issue_login(ctx.uid, ctx.name, game, confirm=not ctx.private)
+        nav = self.scorebook.deep_link(game, rest)
+        link = f"{url}/scores#" + urlencode({"t": tok, **nav})
+        if nav.get("k") or nav.get("q"):
+            song = self.scorebook.cat(game).songs.get(nav["k"]) if nav.get("k") else None
+            what = (song.title if song else f"搜「{nav['q']}」") + (f" {nav['d']}" if nav.get("d") else "")
+            direct = f"{url}/scores#" + urlencode(nav)
+            tail = (f"\n点开直接到：{what}。"
+                    f"\n已经登传过的话，用这个不占登录次数：{direct}")
+        else:
+            tail = ("\n点开就登录了，之后 30 天在这台设备上直接打开 " + f"{url}/scores" + " 就行。"
+                    "\n能找歌（歌名 / 外号 / 读音）、按等级 / 版本 / 分类翻，点难度就能传分；SDVX 和音击都在里面。"
+                    f"\n想直接跳到某首：/{game or 'sdvx'} 传分 歌名 [难度]")
+        if not ctx.private:
+            return Reply(at=ctx.uid).say(f"你的传分网站登录链接（15 分钟内有效、只能用一次）：\n{link}{tail}"
+                                         "\n群里发的链接点开后会显示一个 4 位确认码，你自己在 QQ 回「/传分 确认 码」才会登录，别人点开也登不上你的号。"
+                                         "\n只确认你自己屏幕上看到的码，别人报给你的码不要发。私聊发 /传分 的链接不用确认")
+        return Reply().say(f"你的传分网站登录链接（15 分钟内有效、只能用一次，别转发）：\n{link}{tail}")
+
+    async def _scorebook_dispatch(self, event: AstrMessageEvent, ctx: Ctx, game: str, first: str, rest: str) -> Reply | None:
+        sb = self.scorebook
+        if game:
+            sb._last_game[ctx.uid] = game
+        if first in SBS.LOGIN_WORDS:
+            w0, _, w1 = rest.strip().partition(" ")
+            if w0 in ("确认", "confirm"):
+                code = w1.strip()
+                if not code:
+                    return Reply().say("把网页上的 4 位码带上：/传分 确认 1234")
+                res = sb.sessions.confirm(ctx.uid, code)
+                return Reply().say({
+                    "ok": "确认好了，回到那个网页，几秒内就会登录。网页已经被关掉 / 刷新了的话：用同一个浏览器重新打开 " + (self.bindweb_url() or "") + "/scores ，会接着登上。",
+                    "none": "你现在没有等确认的登录（可能已经过期了，码只有 5 分钟）。重新发「/传分」拿链接。",
+                    "wrong": "码不对。要回你自己点开的网页上显示的那 4 位。",
+                    "locked": "输错太多次，这次的登录已经作废。重新发「/传分」拿链接。",
+                }[res])
+            if rest.strip() in ("登出", "退出", "logout", "下线"):
+                n = sb.sessions.drop_user(ctx.uid)
+                return Reply().say(f"传分网站已登出（{n} 个设备）。要再登录发「/传分」")
+            if not game:                                 # /传分 sdvx VICTIM、/传分 音击 xxx
+                g0, _, r0 = rest.strip().partition(" ")
+                gm = {"sdvx": "sdvx", "sdvx∇": "sdvx", "sdvxnabla": "sdvx", "geki": "geki", "音击": "geki",
+                      "ongeki": "geki", "オンゲキ": "geki"}.get(g0.lower())
+                if gm:
+                    game, rest = gm, r0
+            f0, _, f1 = rest.strip().partition(" ")
+            force = f0.lower() in ("登录", "登陆", "login", "新链接", "换设备", "登录链接")
+            if force:
+                rest = f1.strip()
+            return self._scorebook_link(event, ctx, game, rest, force)
+        r = await sb.handle(ctx, game, first, rest)
+        if r is not None:
+            return r
+        words = rest.split()
+        if game == "sdvx" and first in SBS.BEST_WORDS:
+            text = any(w in ("文字", "text", "txt", "文本") for w in words)
+            full = any(w in ("全", "全部", "all", "完整") for w in words)
+            if not sb.store.has_any(ctx.uid, "sdvx"):
+                return Reply().say(sb.sdvx_text(ctx.uid))
+            if not text:
+                try:
+                    img = await sb.sdvx_image(ctx.uid, sb.store.user(ctx.uid).get("name") or ctx.name or "",
+                                              self.bot_name, getattr(self.chu_svc.settings, "font_path", None),
+                                              getattr(self.chu_svc.settings, "timezone", None) or "Australia/Sydney")
+                    if img:
+                        return Reply(image=img)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[otoge] sdvx vf50 image failed: {type(e).__name__}: {e}")
+            return Reply().say(sb.sdvx_text(ctx.uid, full))
+        off = self.geki_official
+        if game == "geki" and (first in ("同步", "sync", "官服同步") or (first in ("刷新", "更新") and "官服" in rest)):
+            return Reply().say(await off.sync(ctx.uid, force=True))
+        if game == "geki" and first in ("绑定", "bind", "登录") and rest.strip().startswith(("官服", "sega", "日服")):
+            r = await self._web_bind_reply(event, ctx, "geki")
+            r.texts.insert(0, "音击官服用 SEGA ID + 密码绑（要账号开着 オンゲキ-NET Standard），只能在网页上填：打开下面的链接 → 音击 → 官服 → SEGA ID")
+            return r
+        if game == "geki" and first in ("解绑", "unbind") and "官服" in rest:
+            return Reply().say("音击官服已解绑（之前同步进来的成绩还在，在传分网站上删）" if off.unbind(ctx.uid)
+                               else "你没绑音击官服")
+        if game == "geki" and first in ("b50", "best", "best50", "ra", "rating", "成绩", "我", "me", "资料", "文字", "text"):
+            manual = any(w in ("手动", "官服", "manual", "传分", "录分", "日服") for w in words)
+            bound = bool(self.geki._server(ctx.uid)[0])
+            official = off.bound(ctx.uid)
+            if official and (manual or not bound):
+                note = await off.sync(ctx.uid)          # 5 分钟内拉过就不再拉
+                r = await self._geki_manual_best(ctx, words + ([first] if first in ("文字", "text") else []))
+                if "失败" in note or "没开" in note:
+                    r.texts.insert(0, note)
+                return r
+            if manual or (not bound and sb.store.has_any(ctx.uid, "geki")):
+                return await self._geki_manual_best(ctx, words + ([first] if first in ("文字", "text") else []))
+        return None
+
+    async def _geki_manual_best(self, ctx: Ctx, words: list[str]) -> Reply:
+        from .scorebook import calc as SBK
+        sb = self.scorebook
+        if not sb.store.has_any(ctx.uid, "geki"):
+            return Reply().say("你还没传过音击成绩。发「/geki 传分」打开传分网站，或者 /geki 传 <歌> <难度> <技术分> [fc|ab]")
+        name = sb.store.user(ctx.uid).get("name") or ctx.name or ""
+        best = SBK.geki_best(sb.cat("geki"), sb.store.scores(ctx.uid, "geki"), name)
+        best.show_plat = self.prefs.show(ctx.uid, "geki_plat")
+        text = any(w in ("文字", "text", "txt", "文本") for w in words)
+        full = any(w in ("全", "全部", "all", "完整") for w in words)
+        if not text:
+            try:
+                import tempfile
+                from pathlib import Path
+                from .ongeki.b50img import render as geki_render
+                titles = [c.title for c in (*best.new, *best.best, *best.plat)]
+                jackets = {}
+                try:
+                    jackets = await self.charts.src.geki_jackets(titles)
+                except Exception:  # noqa: BLE001
+                    pass
+                out = Path(tempfile.gettempdir()) / f"otoge_gekim_{time.time_ns()}.jpg"
+                await asyncio.to_thread(geki_render, best, out, jackets=jackets,
+                                        font_path=getattr(self.chu_svc.settings, "font_path", None),
+                                        footer_left=f"Generated by {self.bot_name}",
+                                        region_label=("官服同步 + 手动传分" if self.geki_official.bound(ctx.uid)
+                                                      else "手动传分") + " · Re:Fresh 规则",
+                                        tz=getattr(self.chu_svc.settings, "timezone", None) or "Australia/Sydney")
+                try:
+                    return Reply(image=out.read_bytes())
+                finally:
+                    try:
+                        out.unlink()
+                    except OSError:
+                        pass
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[otoge] geki manual b50 image failed: {type(e).__name__}: {e}")
+        from .ongeki.text import render as geki_text
+        t = geki_text(best, best_limit=None if full else 15, plat_limit=None if full else 10)
+        return Reply().say("（手动传分的成绩）\n" + t)
+
+    async def _unbound_to_web(self, event: AstrMessageEvent, ctx: Ctx, game: str, r: Reply) -> Reply:
+        """查分时回「你还没绑定…（发某某指令）」→ 换成网页绑定（说明为什么 + 本人链接），指令写法留在最后一行。"""
+        if r is None or r.image or not self.bindweb_ready():
+            return r
+        text = "\n".join(r.texts)
+        cut = min((text.find(m) for m in UNBOUND_MARKS if m in text), default=-1)
+        if cut < 0:
+            return r
+        why = text[:cut].strip()
+        head = re.split(r"[，,：:。]", text[cut:], 1)[0]
+        w = await self._web_bind_reply(event, ctx, game)
+        if not w.texts or "http" not in w.texts[-1]:      # 没公网地址 / 群里不发链接：原样回
+            return r
+        w.texts[-1] = (why + "\n" if why else "") + head + "，点链接在网页上绑定（最简单，凭据不进聊天记录）👇\n" + w.texts[-1]
+        return w
+
+    # ---------- 别名收集（猜歌） ----------
+    ALIAS_KEYS = {"alias_collect_enabled": bool, "alias_vote_yes": int, "alias_vote_no": int, "alias_vote_minutes": int,
+                  "alias_checks_per_hour": int, "alias_llm_threshold": float, "alias_provider_id": str,
+                  "alias_ask_enabled": bool, "alias_ask_cooldown_minutes": int, "alias_ask_max_known": int}
+
+    @staticmethod
+    def _alias_live_load(root: str) -> dict:
+        try:
+            import json
+            with open(os.path.join(root, "alias_settings.json"), encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _acfg(self, key: str, default=None):
+        """别名设置：WebUI 里改过的优先（存在 alias_settings.json，改了马上生效、不重载插件），否则用插件配置。"""
+        live = getattr(self, "_alias_live", None) or {}
+        return live[key] if key in live else self._cfg(key, default)
+
+    def alias_settings(self) -> dict:
+        return {k: self._acfg(k, d) for k, d in (("alias_collect_enabled", True), ("alias_vote_yes", 3), ("alias_vote_no", 2),
+                                                ("alias_vote_minutes", 10), ("alias_checks_per_hour", 0),
+                                                ("alias_llm_threshold", 0.75), ("alias_provider_id", ""),
+                                                ("alias_ask_enabled", True), ("alias_ask_cooldown_minutes", 0),
+                                                ("alias_ask_max_known", 5))}
+
+    def set_alias_settings(self, changes: dict) -> dict:
+        import json
+        live = dict(getattr(self, "_alias_live", None) or {})
+        for k, v in (changes or {}).items():
+            if k not in self.ALIAS_KEYS:
+                continue
+            try:
+                v = self.ALIAS_KEYS[k](v) if self.ALIAS_KEYS[k] is not bool else bool(v)
+            except (TypeError, ValueError):
+                raise ValueError(f"{k} 填得不对") from None
+            if k in ("alias_vote_yes", "alias_vote_no", "alias_vote_minutes") and v < 1:
+                raise ValueError("票数和分钟至少是 1")
+            if k == "alias_checks_per_hour" and v < 0:
+                raise ValueError("次数不能是负数（0 = 不限）")
+            if k == "alias_ask_max_known" and v < 0:
+                raise ValueError("外号个数不能是负数（0 = 不管有几个都问）")
+            if k == "alias_ask_cooldown_minutes" and v < 0:
+                raise ValueError("冷却不能是负数（0 = 不冷却）")
+            if k == "alias_llm_threshold" and not 0 <= v <= 1:
+                raise ValueError("把握要在 0 到 1 之间")
+            live[k] = v
+        self._alias_live = live
+        tmp = os.path.join(self.root, "alias_settings.json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(live, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, os.path.join(self.root, "alias_settings.json"))
+        av = self.alias_votes
+        av.need_yes, av.need_no = int(self._acfg("alias_vote_yes", 3)), int(self._acfg("alias_vote_no", 2))
+        av.minutes = float(self._acfg("alias_vote_minutes", 10))
+        return self.alias_settings()
+
+    def alias_remove(self, game: str, space: str, sid: str, alias: str) -> bool:
+        """WebUI 删一条本机外号。"""
+        ok = False
+        if space == "mai" and self.cmd.aliases is not None:
+            ok = self.cmd.aliases.remove_local(alias)
+            if ok:
+                self.service.catalog.set_aliases(self.cmd.aliases.merged())
+        elif space == "chu" and self.chu.aliases is not None:
+            ok = self.chu.aliases.remove_local(alias)
+            if ok:
+                self.chu_svc.songdb.apply_aliases(self.chu.aliases.merged())
+        elif space == "sdvxin":
+            ok = self.charts.src.remove_alias(game, alias, str(sid))
+        if ok:
+            try:
+                self.games.data._cache.clear()
+            except Exception:  # noqa: BLE001
+                pass
+            self.alias_library()
+        return ok
+
+    def _alias_on(self) -> bool:
+        return bool(self._acfg("alias_collect_enabled", True)) and self._games_on()
+
+    def _alias_log(self, origin: str, ctx: Ctx, text: str) -> None:
+        if not ctx.private and self._alias_on():
+            self.alias_votes.log(origin, ctx.uid, getattr(ctx, "name", "") or "", text)
+
+    ALIAS_BATCH_SECONDS = 15        # 开字母一局能连中好几首：攒 15 秒一起问一次模型
+
+    def _alias_catalog(self, game: str, kind: str) -> set[str]:
+        """这个游戏所有歌的名字 + 已有外号（标准化后）：候选已经是别的歌的叫法，就不用问模型了。缓存 1 小时。"""
+        cache = self.__dict__.setdefault("_alias_cat", {})
+        hit = cache.get((game, kind))
+        if hit and time.time() - hit[0] < 3600:
+            return hit[1]
+        keys: set[str] = set()
+        try:
+            songs = self.games.data.chart_songs(game) if kind == "chart" else self.games.data.songs(game)
+            for x in songs:
+                keys |= x.answers()
+        except Exception:  # noqa: BLE001
+            pass
+        cache[(game, kind)] = (time.time(), keys)
+        return keys
+
+    def _alias_solved(self, origin: str, s, i: int, ctx, guess: str) -> None:
+        if ctx is None or ctx.private or not self._alias_on():
+            return
+        now = time.time()
+        song = s.picks[i].song
+        others = [p.song for j, p in enumerate(s.picks) if j != i]
+        known = self.alias_votes.known_keys(song.game, s.kind, song.sid)
+        cands = AV.candidates(self.alias_votes.lines(origin), s.started, now, song, known, others,
+                              solver=str(ctx.uid), catalog_keys=self._alias_catalog(song.game, s.kind))
+        if not cands and not self._ask_worth(song):
+            return
+        pend = self.__dict__.setdefault("_alias_pending", {})
+        first = origin not in pend
+        pend.setdefault(origin, []).append((s.kind, song, cands))
+        if first:
+            self._tasks.append(asyncio.create_task(self._alias_flush(origin)))
+
+    def _alias_solved_by_alias(self, origin: str, s, i: int, ctx, guess: str) -> None:
+        """用已有外号猜中：聊天里不用找了，外号还少（默认 < 5 个）就排进去，跟别的一起问「还有别的叫法吗」。"""
+        if ctx is None or ctx.private or not self._alias_on():
+            return
+        song = s.picks[i].song
+        if not self._ask_worth(song):
+            return
+        pend = self.__dict__.setdefault("_alias_pending", {})
+        first = origin not in pend
+        pend.setdefault(origin, []).append((s.kind, song, []))
+        if first:
+            self._tasks.append(asyncio.create_task(self._alias_flush(origin)))
+
+    async def _alias_flush(self, origin: str, delay: float | None = None) -> None:
+        await asyncio.sleep(self.ALIAS_BATCH_SECONDS if delay is None else delay)
+        batch = (self.__dict__.get("_alias_pending") or {}).pop(origin, [])
+        if not batch:
+            return
+        found: set[int] = set()
+        try:
+            found = await self._alias_llm_batch(origin, batch)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] alias check failed: {type(e).__name__}: {e}")
+            return                                   # 模型出错时不追问（可能只是没连上）
+        await self._alias_ask(origin, [(kind, song) for n, (kind, song, _) in enumerate(batch) if n not in found])
+
+    async def _alias_llm_batch(self, origin: str, batch: list) -> set[int]:
+        """有候选的几首一起问模型；模型说像的直接发起投票。返回找到外号的那几首的序号。"""
+        idxs = [n for n, (_, _, c) in enumerate(batch) if c]
+        if not idxs:
+            return set()
+        now = time.time()
+        recent = [t for t in self._alias_checks.get(origin, []) if now - t < 3600]
+        try:
+            cap = int(self._acfg("alias_checks_per_hour", 0) or 0)        # 0 = 不限
+        except (TypeError, ValueError):
+            cap = 0
+        if cap > 0 and len(recent) >= cap:
+            return set(range(len(batch)))           # 超了次数：这几首这次就不问模型也不追问
+        recent.append(now)
+        self._alias_checks[origin] = recent
+        items = [(GAME_NAMES.get(batch[n][1].game, batch[n][1].game), batch[n][1], batch[n][2]) for n in idxs]
+        call = await self._alias_llm_call()
+        if call is None:
+            return set(range(len(batch)))
+        text = await call(AV.SYSTEM, AV.prompt(items))
+        got = AV.parse_reply(text, items, float(self._acfg("alias_llm_threshold", 0.75) or 0.75))
+        logger.info(f"[otoge] alias check {[(s.title, c) for _, s, c in items]} → {got}")
+        av = self.alias_votes
+        for j, n in enumerate(idxs):
+            kind, song, cands = batch[n]
+            for c in cands:
+                if got.get(j, ("",))[0] != c:
+                    av.remember_no(song.game, kind, song.sid, song.title, c)
+        av.flush()
+        for j, (alias, reason) in got.items():
+            kind, song, _ = batch[idxs[j]]
+            intro = av.propose(AV.Vote(origin, song.game, kind, song.sid, song.title, alias, reason, ref=song.ref))
+            if intro:
+                await self._notify_private(origin, intro)
+        return {idxs[j] for j in got}
+
+    def _ask_on(self) -> bool:
+        return bool(self._acfg("alias_ask_enabled", True))
+
+    def _ask_worth(self, song) -> bool:
+        """外号已经很多的歌就不追问了（默认已有 5 个及以上不问；0 = 不管有几个都问）。"""
+        if not self._ask_on():
+            return False
+        try:
+            lim = int(self._acfg("alias_ask_max_known", 5) or 0)
+        except (TypeError, ValueError):
+            lim = 5
+        return lim <= 0 or len(getattr(song, "aliases", None) or []) < lim
+
+    async def _alias_ask(self, origin: str, items: list) -> None:
+        """模型没从聊天里找到外号：问一句「这首大家叫它什么」。有冷却、群里正在投票 / 在问就不问，免得刷屏。"""
+        items = [(k, sg) for k, sg in items if self._ask_worth(sg)]
+        if not items or not self._alias_on():
+            return
+        try:
+            cd = float(self._acfg("alias_ask_cooldown_minutes", 0) or 0)
+        except (TypeError, ValueError):
+            cd = 0.0
+        if not self.alias_votes.can_ask(origin, cd):
+            return
+        text = self.alias_votes.open_ask(origin, items, GAME_NAMES)
+        if text:
+            await self._notify_private(origin, text)
+
+    def _alias_ask_reply(self, origin: str, ctx: Ctx, text: str) -> Reply | None:
+        """回「别名 xxx」：本地检查（不花 token），没问题就发起投票，靠群友投票把关。"""
+        av = self.alias_votes
+        a = av.ask_current(origin)
+        if a is None:
+            return None
+        got = AV.parse_ask_reply(text, len(a.items))
+        if got is None:
+            return None
+        idx, alias = got
+        if idx < 0:
+            return Reply().say(AV.which_song_hint(a.items, alias))
+        kind, song = a.items[idx]
+        alias = alias.replace(" ", "") if AV._CJK.search(alias) else alias.strip()
+        why = AV.check_alias(alias, song, av.voted_keys(song.game, kind, song.sid), self._alias_catalog(song.game, kind))
+        if why:
+            return Reply().say(why)
+        a.taken += 1
+        who = (getattr(ctx, "name", "") or "").strip()
+        v = AV.Vote(origin, song.game, kind, song.sid, song.title, alias, f"{who}提议" if who else "群友提议", ref=song.ref)
+        intro = av.propose(v)
+        if intro:
+            return Reply().say(intro)
+        cur = av._current(origin)
+        if cur is None:
+            return Reply().say(f"收到「{alias}」=《{song.title}》，排上了，前面的投完就轮到它")
+        return Reply().say(f"收到「{alias}」=《{song.title}》，排在后面。\n"
+                           f"⚠ 现在在投的是「{cur.alias}」=《{cur.title}》（{av.status(cur)}），"
+                           f"这时候回 y / n 算给「{cur.alias}」，等它投完才轮到「{alias}」")
+
+    def _alias_provider_id(self) -> str:
+        """别名判断用便宜的模型：配置 alias_provider_id；没填就找名字里带 flash 的；再没有就用「自然语言」那个。"""
+        pid = str(self._acfg("alias_provider_id", "") or "").strip()
+        if pid:
+            return pid
+        try:
+            for prov in self.context.get_all_providers():
+                meta = prov.meta()
+                model = str(getattr(meta, "model", "") or (prov.get_model() if hasattr(prov, "get_model") else ""))
+                if "flash" in model.lower() or "flash" in str(meta.id).lower():
+                    return str(meta.id)
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
+    async def _alias_llm_call(self):
+        pid = self._alias_provider_id()
+        if not pid:
+            return await self._llm_call(None)
+        timeout = float(self._cfg("nl_timeout", 15))
+
+        async def call(system: str, text: str) -> str:
+            resp = await asyncio.wait_for(self.context.llm_generate(
+                chat_provider_id=pid, system_prompt=system, prompt=text), timeout=timeout)
+            return resp.completion_text or ""
+        return call
+
+    def alias_library(self) -> dict[str, int]:
+        """本机别名按游戏导出到 alias_library/（mai/chu/geki/sdvx/pjsk.json + README.md）。"""
+        try:
+            self.scorebook.sync_aliases()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] scorebook alias sync failed: {type(e).__name__}: {e}")
+        try:
+            return AL.write(AL.collect(self), os.path.join(self.root, "alias_library"))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] alias library export failed: {type(e).__name__}: {e}")
+            return {}
+
+    def _alias_apply(self, v) -> str:
+        """投票通过 → 写进本机别名库（舞萌 / 中二用各自的别名库，猜谱面和音击 / SDVX / PJSK 用 sdvx.in 那份）。"""
+        alias = v.alias.replace(" ", "")
+        if v.kind != "chart" and v.game == "mai" and self.cmd.aliases is not None:
+            ref = v.ref
+            ids = list(ref.music_ids()) if ref is not None and hasattr(ref, "music_ids") else \
+                [int(v.sid)] if v.sid.isdigit() else []
+            if not ids:
+                return "没找到这首歌的曲目 ID，没加上"
+            self.cmd.aliases.add_local(alias, min(m % 10000 for m in ids))
+            self.service.catalog.set_aliases(self.cmd.aliases.merged())
+        elif v.kind != "chart" and v.game == "chu" and self.chu.aliases is not None and v.sid.isdigit():
+            self.chu.aliases.add_local(alias, int(v.sid))
+            self.chu_svc.songdb.apply_aliases(self.chu.aliases.merged())
+        else:
+            self.charts.src.add_alias(v.game, alias, v.sid)
+        try:
+            self.games.data._cache.clear()                  # 猜歌的曲目列表带着外号，清掉重建
+        except Exception:  # noqa: BLE001
+            pass
+        self.alias_library()
+        return ""
+
+    def _alias_vote(self, origin: str, ctx: Ctx, text: str) -> Reply | None:
+        if ctx.private or not self._alias_on():
+            return None
+        r = self._alias_ask_reply(origin, ctx, text)
+        if r is not None:
+            return r
+        res = self.alias_votes.on_message(origin, ctx.uid, text)
+        if res is None:
+            return None
+        what, v = res
+        if what == "counted":
+            w = "y" if ctx.uid in v.yes else "n"
+            return Reply().say(f"收到 {w}：「{v.alias}」=《{v.title}》（{self.alias_votes.status(v)}）")
+        if what == "pass":
+            err = self._alias_apply(v)
+            line = (f"✓ 投票通过（{len(v.yes)} 票 y）：以后「{v.alias}」就是《{v.title}》了" if not err
+                    else f"投票通过了，但{err}")
+        else:
+            line = f"✗ 没通过（{len(v.no)} 票 n）：「{v.alias}」不算《{v.title}》的外号"
+        nxt = self.alias_votes.next_intro(origin)
+        return Reply().say(line + (f"\n\n{nxt}" if nxt else ""))
 
     # ---------- 版本进度核实 ----------
     def _chu_augment(self, db) -> None:
@@ -945,9 +1736,38 @@ class OtogeScore(Star):
         args = argline.split()
         sub = args[0].lower() if args else ""
         if sub in WEB_BIND_WORDS:
+            if len(args) > 1 and args[1].lower() in ("确认", "confirm"):
+                return self._web_bind_confirm(ctx, " ".join(args[2:]))
             return await self._web_bind_reply(event, ctx)
+        if sub in SBS.LOGIN_WORDS:                      # /传分、/查分 传分 → 传分网站
+            return await self._scorebook_dispatch(event, ctx, "", sub, " ".join(args[1:])) or Reply()
+        if sub in SBS.RECORD_WORDS or sub in SBS.BATCH_WORDS:   # /传、/批量传（不带游戏 → 上次传分的游戏）
+            raw = argline.strip()
+            rest = raw[len(args[0]):].lstrip(" \t") if args else ""
+            g0 = re.match(r"(\S+)", rest)
+            game = SBS.GAME_WORDS.get(g0.group(1).lower()) if g0 else None
+            explicit = game is not None
+            if explicit:
+                rest = rest[len(g0.group(1)):].lstrip(" \t")
+            else:
+                game = self.scorebook.last_game(ctx.uid)
+            r = await self.scorebook.handle(ctx, game, sub, rest)
+            if r is None:
+                return Reply()
+            if not explicit and rest.strip():
+                other = "geki" if game == "sdvx" else "sdvx"
+                r.texts[0] = f"（按 {'SDVX' if game == 'sdvx' else '音击'} 传的；要传{'音击' if other == 'geki' else ' SDVX'}写 /{sub} {other} …）\n" + r.texts[0]
+            return r
         if sub in ("账号", "我的账号", "account", "绑定"):
             return Reply().say(self.accounts_text(ctx.uid))
+        if sub in ("别名库", "外号库", "aliases", "别名导出"):
+            counts = await asyncio.to_thread(self.alias_library)
+            names = {"mai": "舞萌", "chu": "中二", "geki": "音击", "sdvx": "SDVX", "pjsk": "PJSK"}
+            body = "　".join(f"{names[g]} {n}" for g, n in counts.items()) or "导出失败，看日志"
+            lines = [f"本 bot 收录的外号（指令加的 + 猜歌投票通过的）：{body}"]
+            if self._is_owner(event):
+                lines.append(f"已按游戏导出到：{os.path.join(self.root, 'alias_library')}（每个游戏一个 JSON + README，CC0，不含 QQ 号 / 群号）")
+            return Reply().say("\n".join(lines))
         if sub in CL.WORDS:                                  # /查分 更新记录 [全]
             full = len(args) > 1 and args[1] in ("全", "全部", "all", "完整")
             return Reply().say(CL.text(CL.load(), None if full else 3))
@@ -1008,6 +1828,21 @@ class OtogeScore(Star):
                 return "国服（落雪" + (" · 按 QQ" if src == "lxqq" else "") + (f" · {when}" if when else "") + "）"
             lines.append(f"· {GAME_NAMES[game]}：" + "、".join(label(s) + ("（默认）" if s == default else "")
                                                          for s in bound))
+        # 音击：私服 AquaDX（和舞萌中二共用的那个绑定）+ 官服手动传的；SDVX：只有手动传的
+        aqua = self.priv.bindings.get(uid, "aqua") if getattr(self, "priv", None) is not None else ""
+        try:
+            gn = len(self.scorebook.store.scores(uid, "geki"))
+            sn = len(self.scorebook.store.scores(uid, "sdvx"))
+        except Exception:  # noqa: BLE001
+            gn = sn = 0
+        geki = [f"私服 AquaDX（{aqua}）"] if aqua else []
+        off = getattr(self, "geki_official", None)
+        if off is not None and off.bound(uid):
+            geki.append("官服 SEGA ID（自动查" + ("，没开 Standard" if off.last(uid).get("std") is False else "") + "）")
+        if gn:
+            geki.append(f"官服成绩 {gn} 张")
+        lines.append("· 音击：" + ("、".join(geki) if geki else "没绑定私服，官服也还没传分"))
+        lines.append("· SDVX：" + (f"手动传分 {sn} 张" if sn else "还没传分（官服不用绑定，发 /sdvx 传分）"))
         lines.append("查别的服在指令后加区服，例如「/mai b50 日服」；绑定发「/网页绑定」")
         if any("国服" in ln for ln in lines):
             lines.append("国服成绩是查分器里存的那份，要自己传上去：发「/mai 更新」「/chu 更新」看怎么传")
@@ -1056,7 +1891,9 @@ class OtogeScore(Star):
                                          "绑定发「/网页绑定」，拿链接在网页上填。")
             return
         r = await self.cmd.on_flow_message(ctx, text) if ctx.private else None   # mai SEGA ID / password steps
-        if r is None and self._cfg("games_enabled", True):
+        if r is None and not ctx.private:
+            r = self._alias_vote(event.unified_msg_origin, ctx, text)          # 别名投票的 y / n
+        if r is None and self._games_on():
             # 猜歌小游戏：开局要像别的指令一样带「/」（或 @ / 私聊）；局里的「开 a」「提示」和猜对的歌名不用
             try:
                 r = await self.games.handle(event.unified_msg_origin, ctx, text,
@@ -1086,6 +1923,8 @@ class OtogeScore(Star):
         if r is None and ctx.private and lx_secret:
             # a 落雪 key that is not a clean bind command must still never reach the chat model / memory
             r = Reply().say("这看起来像落雪的个人 API 密钥。绑定请发「/mai 绑定 落雪 <密钥>」或「/chu 绑定 落雪 <密钥>」")
+        if not ctx.private:
+            self._invite_watch(event, ctx, text)
         if r is not None:
             event.should_call_llm(True)      # commands never reach the chat model …
             event.stop_event()               # … nor the companion / memory plugins below us

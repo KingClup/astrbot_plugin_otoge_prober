@@ -37,6 +37,8 @@ LX_OAUTH_CONSENT = ("1. 点下面的按钮会跳到落雪查分器的授权页�
                     "3. 一次授权舞萌、中二国服都能用。随时发 /mai 解绑 国服、/chu 解绑 国服，或者在落雪网站上取消授权。")
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "bind")
 TTL = 600                    # 链接有效期（秒）
+MAX_PENDING = 8              # 一条群链接最多让几个浏览器等确认（再多就不发确认码了）
+MAX_CODE_TRIES = 5           # 确认码回错几次，这条链接作废
 MAX_SUBMITS = 12             # 一个链接最多提交几次绑定
 SEGA_ID_RE = re.compile(r"[A-Za-z0-9_.@\-]{3,64}")
 DF_NAME_RE = re.compile(r"[^\s/\\]{1,64}")
@@ -44,6 +46,7 @@ RIN_ACCOUNT_RE = re.compile(r"\S{1,128}")
 RIN_TOKEN_RE = re.compile(r"[A-Za-z0-9_\-.~+/=]{20,200}")
 # 私服：网页上「区服」选「私服」，「方式」就是哪个私服；rin_token 也是绑 RinNET
 PRIV_METHODS = {"munet": "munet", "aqua": "aqua", "rin": "rin", "rin_token": "rin"}
+IMG_RE = re.compile(r"[a-z0-9\-]{1,40}\.webp")
 LOCAL = ("127.0.0.1", "::1", "localhost")
 
 SECURITY_HEADERS = {
@@ -73,8 +76,10 @@ class Session:
     name: str = ""
     exp: float = 0.0
     submits: int = 0
-    group: bool = False           # 链接发在群里：第一个打开的设备「占用」它，别人点开也用不了
-    claim: str = ""
+    group: bool = False           # 链接发在群里：谁都能点开，所以要发命令的人在 QQ 回网页上的确认码才认
+    claim: str = ""               # 确认过的那个浏览器（X-Bind-Claim）
+    pend: dict = field(default_factory=dict)      # 点开了还没确认的浏览器：claim → 4 位确认码
+    tries: int = 0                # 确认码回错的次数
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -103,6 +108,27 @@ class Sessions:
             self._by_hash.pop(_h(token), None)
             return None
         return s
+
+    def confirm(self, uid: str, code: str) -> str:
+        """发命令的人在 QQ 回确认码 → 认下显示这个码的那个浏览器。
+        返回 ok / none（没有在等确认的链接）/ wrong（码不对）/ locked（错太多次，链接作废）。"""
+        self._gc()
+        mine = [(k, s) for k, s in self._by_hash.items() if s.uid == str(uid) and s.group and not s.claim]
+        if not mine:
+            return "none"
+        code = "".join(ch for ch in str(code) if ch.isdigit())
+        for k, s in mine:
+            for claim, c in s.pend.items():
+                if code and secrets.compare_digest(c, code):
+                    s.claim = claim
+                    s.pend = {}
+                    return "ok"
+        for k, s in mine:
+            s.tries += 1
+            if s.tries >= MAX_CODE_TRIES:
+                del self._by_hash[k]
+                return "locked"
+        return "wrong"
 
     def revoke(self, token: str) -> None:
         self._by_hash.pop(_h(token), None)
@@ -152,7 +178,9 @@ class Binder:
         if chu.get("cn"):
             src = (p.chu_svc.cn.get(uid) or {}).get("source")
             chu["cn"] = src if src in ("lx", "lxqq", "lxoauth") else "df"
-        return {"mai": mai, "chu": chu}
+        off = getattr(p, "geki_official", None)
+        geki = {"jp": bool(off is not None and off.bound(uid))}
+        return {"mai": mai, "chu": chu, "geki": geki}
 
     def lx_options(self) -> dict:
         p = self.p
@@ -210,7 +238,8 @@ class Binder:
                    ("mai", "cn", "df"), ("mai", "cn", "lx"), ("mai", "cn", "lxqq"), ("chu", "cn", "lxqq"),
                    ("chu", "intl", "clal"), ("chu", "intl", "sega"), ("chu", "jp", "sega"), ("chu", "cn", "df"), ("chu", "cn", "lx"),
                    *((g, "priv", m) for g in ("mai", "chu") for m in PRIV_METHODS),
-                   ("geki", "priv", "aqua")}            # 音击只有 AquaDX 能查；绑定本身三个游戏共用
+                   ("geki", "priv", "aqua"),            # 音击私服只有 AquaDX 能查；绑定本身三个游戏共用
+                   ("geki", "jp", "sega")}              # 音击官服：SEGA ID 登录 オンゲキ-NET（要 Standard）
         if combo not in allowed:
             raise BindError("游戏 / 区服 / 方式不对，刷新页面再试")
         if server == "priv":
@@ -237,6 +266,8 @@ class Binder:
         for s in secrets_used:
             REDACTOR.remember(s)
         try:
+            if game == "geki":
+                return await self.p.geki_official.bind(ctx.uid, "", sega_id, password)
             if game == "mai":
                 return await self._mai(ctx, server, method, value, sega_id, password, agree)
             return await self._chu(ctx, server, method, value, sega_id, password)
@@ -323,8 +354,9 @@ def is_success(text: str) -> bool:
 class BindWeb:
     def __init__(self, binder: Binder, *, host: str = "127.0.0.1", port: int = 36199, bot_name: str = "AstrBot",
                  notify: Callable[..., Awaitable[Any]] | None = None, log: Callable[[str], Any] | None = None,
-                 sessions: Sessions | None = None):
+                 sessions: Sessions | None = None, extra: list | None = None):
         self.binder = binder
+        self.extra = list(extra or [])        # 同一个服务上的别的页面（传分网站）：对象要有 add_routes(app)
         self.host, self.port = host, int(port)
         self.bot_name = bot_name
         self.notify = notify
@@ -356,11 +388,16 @@ class BindWeb:
         app.router.add_get("/", self.page)
         app.router.add_get("/app.js", self.static)
         app.router.add_get("/app.css", self.static)
+        app.router.add_get("/img/{name}", self.image)
         app.router.add_get("/healthz", self.health)
         app.router.add_get("/api/session", self.api_session)
         app.router.add_post("/api/bind", self.api_bind)
         app.router.add_post("/api/lx/start", self.api_lx_start)
         app.router.add_get("/lxns/callback", self.lx_callback)
+        for x in self.extra:
+            if hasattr(x, "attach_bind"):
+                x.attach_bind(self)
+            x.add_routes(app)
         return app
 
     async def start(self, retries: int = 10) -> bool:
@@ -405,11 +442,27 @@ class BindWeb:
         s = self.sessions.get(token)
         if s is None:
             return token, None, "expired"
-        if s.group and s.claim:
+        if s.group:
+            if not s.claim:
+                return token, None, "pending"         # 还没在 QQ 确认：除了 /api/session 什么都不给
             got = request.headers.get("X-Bind-Claim", "")
             if not got or not secrets.compare_digest(got, s.claim):
                 return token, None, "claimed"
         return token, s, ""
+
+    def _pending(self, request, s: Session):
+        """群链接还没确认：给这个浏览器一个确认码（同一个浏览器再问还是同一个码）。满了返回 None。"""
+        got = request.headers.get("X-Bind-Claim", "")
+        if got and got in s.pend:
+            return "", s.pend[got]
+        if len(s.pend) >= MAX_PENDING:
+            return None
+        claim = secrets.token_urlsafe(18)
+        code = f"{secrets.randbelow(10000):04d}"
+        while code in s.pend.values():
+            code = f"{secrets.randbelow(10000):04d}"
+        s.pend[claim] = code
+        return claim, code
 
     # ---------- 页面 ----------
     async def page(self, request):
@@ -425,6 +478,20 @@ class BindWeb:
         with open(os.path.join(WEB_DIR, name), encoding="utf-8") as f:
             return web.Response(text=f.read(), content_type=ctype, charset="utf-8")
 
+    async def image(self, request):
+        """看板娘图片：只给 web/bind/img 里的 .webp，文件名只许小写字母、数字和连字符。"""
+        from aiohttp import web
+        name = request.match_info.get("name", "")
+        if not IMG_RE.fullmatch(name):
+            raise web.HTTPNotFound()
+        path = os.path.join(WEB_DIR, "img", name)
+        if not os.path.isfile(path):
+            raise web.HTTPNotFound()
+        with open(path, "rb") as f:
+            # 图片里没有任何个人信息，可以缓存；页面和接口照旧 no-store
+            return web.Response(body=f.read(), content_type="image/webp",
+                                headers={"Cache-Control": "public, max-age=86400"})
+
     async def health(self, request):
         return self._json({"ok": True})
 
@@ -432,12 +499,17 @@ class BindWeb:
     async def api_session(self, request):
         if not self.ip_api.allow(self.client_ip(request)):
             return self._json({"error": "请求太频繁，稍等一分钟"}, 429)
-        _, s, err = self._session(request)
+        token, s, err = self._session(request)
+        if s is None and err == "pending":
+            ps = self.sessions.get(token)
+            got = self._pending(request, ps) if ps is not None else None
+            if got is None:
+                return self._json({"error": "claimed"}, 409)
+            return self._json({"pending": True, "claim": got[0], "code": got[1], "group": True, "bot": self.bot_name,
+                               "expires_in": max(0, int(ps.exp - time.time()))})
         if s is None:
             return self._json({"error": err}, 409 if err == "claimed" else 401)
         claim = ""
-        if s.group and not s.claim:
-            s.claim = claim = secrets.token_urlsafe(18)
         return self._json({
             "claim": claim, "group": s.group,
             "bot": self.bot_name, "qq": mask_qq(s.uid), "name": s.name,
@@ -513,10 +585,16 @@ class BindWeb:
     def _result_page(self, ok: bool, msg: str):
         from aiohttp import web
         body = "".join(f"<p>{_esc(x)}</p>" if x else "" for x in msg.split("\n"))
+        pose = "ok" if ok else "gone"
+        girl = (f'<img class="notice-girl" src="/img/yume-{pose}.webp" alt="" width="520" height="388">'
+                if os.path.isfile(os.path.join(WEB_DIR, "img", f"yume-{pose}.webp")) else "")   # 公开版包里没有这张图
         html = (f'<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
                 f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>落雪授权 · {_esc(self.bot_name)}</title>'
                 f'<link rel="stylesheet" href="/app.css"></head><body><main class="wrap">'
-                f'<h1>{"授权成功" if ok else "没有绑上"}</h1>'
+                f'<header class="top"><div class="bar"><span class="brand">{_esc(self.bot_name)} 音游查分</span></div>'
+                f'<div class="rule" aria-hidden="true"><i></i><i></i></div>'
+                f'<h1>{"授权成功" if ok else "没有绑上"}</h1></header>'
+                f'{girl}'
                 f'<div class="result {"ok" if ok else "bad"}">{body}</div></main></body></html>')
         return web.Response(text=html, content_type="text/html", charset="utf-8")
 

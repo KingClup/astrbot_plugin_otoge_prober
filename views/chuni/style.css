@@ -1,24 +1,24 @@
 :root {
-  --bg: #f6f7fb;
+  --bg: #f5f7fb;
   --card: #ffffff;
-  --text: #1d1f2a;
-  --muted: #6b7084;
-  --border: #e3e5ee;
+  --text: #1b2a4a;
+  --muted: #56637d;
+  --border: #d8deea;
   --accent: #c98f00;
   --ok: #1b8a4b;
   --err: #c62839;
-  --code: #f0f1f6;
+  --code: #e6effa;
 }
 [data-theme="dark"] {
-  --bg: #15161c;
-  --card: #1e2029;
-  --text: #e6e7ee;
-  --muted: #9aa0b4;
-  --border: #2e3140;
+  --bg: #0f1626;
+  --card: #162036;
+  --text: #eef2f9;
+  --muted: #9aa6bd;
+  --border: #27324b;
   --accent: #e8b52a;
   --ok: #4cc38a;
   --err: #ff6b7a;
-  --code: #262836;
+  --code: #1a2640;
 }
 * { box-sizing: border-box; }
 body {
@@ -123,3 +123,15 @@ label.file input { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .size-row input[type="range"] { flex: 1; accent-color: var(--accent); }
 .size-row b { min-width: 56px; text-align: right; }
 .size-btns { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ---- v2.3.9：和绑定网站一套的配色，加一点动效 ---- */
+h1 { font-family: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", STSong, SimSun, serif; font-weight: 500; letter-spacing: .06em;
+     padding-bottom: 10px; border-bottom: 4px double var(--text); }
+button { transition: transform .12s, filter .15s, box-shadow .15s; }
+button:hover:not(:disabled) { filter: brightness(1.08); }
+button:active:not(:disabled) { transform: scale(.96); }
+input, select, textarea { transition: border-color .15s, box-shadow .15s; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: #5f86b5; box-shadow: 0 0 0 3px rgba(143, 178, 217, .35); }
+section, .card { animation: wRise .45s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes wRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

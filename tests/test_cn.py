@@ -175,7 +175,7 @@ async def test_mai_lx_bind_flow_private_with_consent(mai_env):
     r = await cmd.handle(ctx, "b50 文字")
     text = "\n".join(r.texts)
     assert "Zitronectar" in text and "PANDORA" in text
-    assert "数据来自落雪查分器" in text and "上传于 11-01" in text and "/mai 更新" in text     # 国服：说明来源和上传时间
+    assert "落雪查分器" in text and "上传于 11-01" in text and "/mai 更新" in text     # 国服：说明来源和上传时间
     assert svc.cn_uploaded_at("10001") == "2026-11-01T03:04:05Z"
     r = await cmd.handle(ctx, "我")
     assert "落雪查分器" in r.texts[0] and "15039" in r.texts[0]

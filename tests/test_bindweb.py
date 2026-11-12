@@ -249,7 +249,8 @@ def test_cf_ip_only_trusted_from_localhost():
     assert BindWeb.client_ip(R("8.8.8.8", {"CF-Connecting-IP": "1.2.3.4"})) == "8.8.8.8"
 
 
-def test_group_link_is_claimed_by_first_device():
+def test_group_link_needs_confirm_code():
+    """v2.4.1：群里的链接谁都点得开 → 点开只给一个确认码，本人在 QQ 回了码，显示那个码的浏览器才能用。"""
     p = FakePlugin()
     sent = []
 
@@ -263,26 +264,52 @@ def test_group_link_is_claimed_by_first_device():
         try:
             tok = web.sessions.issue("123456", "aiocqhttp:GroupMessage:555", group=True)
             h = {"X-Bind-Token": tok}
-            j = await (await c.get("/api/session", headers=h)).json()
-            claim = j["claim"]
-            assert claim and j["group"]
-            # someone else opening the same link afterwards is locked out
-            r = await c.get("/api/session", headers=h)
+            # 别人先点开：拿到的只有确认码，没有 QQ、没有已绑定的东西
+            j1 = await (await c.get("/api/session", headers=h)).json()
+            assert j1["pending"] and j1["claim"] and len(j1["code"]) == 4 and "qq" not in j1 and "bound" not in j1
+            other = {**h, "X-Bind-Claim": j1["claim"]}
+            # 本人后点开：另一个码
+            j2 = await (await c.get("/api/session", headers=h)).json()
+            assert j2["pending"] and j2["code"] != j1["code"]
+            mine = {**h, "X-Bind-Claim": j2["claim"]}
+            # 同一个浏览器再问（页面刷新了）：还是那个码，不多占名额
+            j2b = await (await c.get("/api/session", headers=mine)).json()
+            assert j2b["pending"] and j2b["code"] == j2["code"] and j2b["claim"] == ""
+            # 没确认之前谁都提交不了
+            body = {"game": "mai", "server": "jp", "method": "sega", "sega_id": "x_1", "password": "pw", "agree": True}
+            for hh in (h, other, mine):
+                r = await c.post("/api/bind", json=body, headers=hh)
+                assert r.status in (401, 409) and not p.cmd.calls
+            # 别的 QQ 回这个码没用；本人回错的码也没用
+            assert web.sessions.confirm("999", j2["code"]) == "none"
+            wrong = "0000" if j2["code"] != "0000" and j1["code"] != "0000" else "1111"
+            assert web.sessions.confirm("123456", wrong) == "wrong"
+            # 本人回自己屏幕上的码
+            assert web.sessions.confirm("123456", j2["code"]) == "ok"
+            j = await (await c.get("/api/session", headers=mine)).json()
+            assert not j.get("pending") and j["group"] and j["qq"]
+            # 先点开的那个人被挡在外面
+            r = await c.get("/api/session", headers=other)
             assert r.status == 409 and (await r.json())["error"] == "claimed"
-            r = await c.post("/api/bind", json={"game": "mai", "server": "jp", "method": "sega", "sega_id": "x_1",
-                                                "password": "pw", "agree": True}, headers=h)
-            assert r.status == 409 and not p.cmd.calls
-            # the first device keeps working
-            h2 = {**h, "X-Bind-Claim": claim}
-            assert (await c.get("/api/session", headers=h2)).status == 200
-            j = await (await c.post("/api/bind", json={"game": "mai", "server": "jp", "method": "sega",
-                                                         "sega_id": "me_1", "password": "pw", "agree": True},
-                                    headers=h2)).json()
+            assert (await c.post("/api/bind", json=body, headers=other)).status == 409 and not p.cmd.calls
+            j = await (await c.post("/api/bind", json={**body, "sega_id": "me_1"}, headers=mine)).json()
             assert j["ok"] and sent and sent[0][0].endswith(":555") and sent[0][2] == "123456"
-            # private links are not claimed (opening in QQ, then in Safari, still works)
+            assert web.sessions.confirm("123456", j2["code"]) == "none"      # 已经确认过
+            # 码错太多次：链接作废
+            tok3 = web.sessions.issue("555", "aiocqhttp:GroupMessage:1", group=True)
+            j3 = await (await c.get("/api/session", headers={"X-Bind-Token": tok3})).json()
+            bad = "0000" if j3["code"] != "0000" else "1111"
+            res = [web.sessions.confirm("555", bad) for _ in range(5)]
+            assert res[:4] == ["wrong"] * 4 and res[4] == "locked" and web.sessions.get(tok3) is None
+            # 点开的浏览器太多：不再发确认码
+            tok4 = web.sessions.issue("556", "aiocqhttp:GroupMessage:1", group=True)
+            st = [(await c.get("/api/session", headers={"X-Bind-Token": tok4})).status for _ in range(9)]
+            assert st[:8] == [200] * 8 and st[8] == 409
+            # 私聊的链接不用确认（在 QQ 里点开、再换 Safari 打开都行）
             tok2 = web.sessions.issue("777")
             j = await (await c.get("/api/session", headers={"X-Bind-Token": tok2})).json()
-            assert j["claim"] == "" and (await c.get("/api/session", headers={"X-Bind-Token": tok2})).status == 200
+            assert not j.get("pending") and j["claim"] == "" \
+                and (await c.get("/api/session", headers={"X-Bind-Token": tok2})).status == 200
         finally:
             await c.close()
     run(go())

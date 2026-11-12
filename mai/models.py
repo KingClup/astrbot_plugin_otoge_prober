@@ -47,6 +47,8 @@ class Profile:
     title: str = ""
     title_kind: str = "normal"   # normal / bronze / silver / gold / rainbow
     icon_url: str = ""
+    plate_url: str = ""          # 姓名框（游戏里那条横幅）。目前只有国服（落雪）给
+    frame_url: str = ""          # 背景（游戏上屏那张大图）。目前只有国服（落雪）给
     course_rank: str = ""        # icon url / code
     class_rank: str = ""
     stars: int | None = None

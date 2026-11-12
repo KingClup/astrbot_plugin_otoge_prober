@@ -55,6 +55,7 @@ class GekiBest:
     plat: list[GekiChart] = field(default_factory=list)      # Re:Fresh only
     recent: list[GekiChart] = field(default_factory=list)    # bright MEMORY and earlier only
     refresh: bool = True                       # Re:Fresh rating system (New10 + Best50 + P50)
+    show_plat: bool = True                     # 卡片上显示白金分（/geki 白金分 关）
 
     @property
     def version_name(self) -> str:

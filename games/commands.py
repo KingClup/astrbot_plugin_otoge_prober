@@ -5,6 +5,7 @@ import asyncio
 import io
 import logging
 import random
+import time
 import re
 import unicodedata
 
@@ -23,7 +24,7 @@ log = logging.getLogger("astrbot")
 START = {
     "猜歌": "letters", "开字母": "letters", "猜歌名": "letters", "开字母猜歌": "letters",
     "猜曲绘": "jacket", "猜封面": "jacket", "曲绘猜歌": "jacket",
-    "猜谱面": "chart", "猜谱": "chart", "谱面猜歌": "chart",
+    "猜谱面": "chart", "猜谱": "chart", "谱面猜歌": "chart", "猜铺面": "chart", "猜普面": "chart",
 }
 GAME_WORDS = {
     "mai": "mai", "舞萌": "mai", "maimai": "mai", "乌蒙": "mai", "舞萌dx": "mai",
@@ -34,9 +35,11 @@ GAME_WORDS = {
 REGION_WORDS = {"国服": "cn", "日服": "jp", "国际服": "intl"}
 SUPPORTED = {"letters": ("mai", "chu", "geki", "sdvx", "pjsk"), "jacket": ("mai", "chu", "geki", "sdvx", "pjsk"),
              "chart": ("chu", "geki", "sdvx", "pjsk")}
+HINT_DEBOUNCE = 3          # 秒：这么短时间里重复的「提示」只算一次
 END_WORDS = {"结束", "不猜了", "公布", "公布答案", "答案", "揭晓", "不玩了", "结束猜歌", "end", "stop"}
 HINT_WORDS = {"提示", "加", "再来", "再加", "加一节", "再加一节", "下一节", "更清楚", "清楚点", "再清楚点", "hint",
               "放大", "多一点", "再多一点"}
+LETTER_HINT = re.compile(r"^(?:(\d{1,2})\s*[.．、。:：号]?\s*(?:提示|hint)|(?:提示|hint)\s*(\d{1,2})\s*号?)$", re.I)
 STATUS_WORDS = {"状态", "题目", "看题", "进度"}
 LETTERS_N = 10
 CHART_MAX = 8                   # measures shown at most (stage 0 = 1 measure … stage 7 = 8)
@@ -44,15 +47,17 @@ CHART_MAX = 8                   # measures shown at most (stage 0 = 1 measure �
 HELP = """猜歌小游戏（群里、私聊都能玩；一个群同时只开一局）
 /猜歌 [游戏] [定数]   开字母：出 10 首歌名，全部打码
   · 发「开 a」「开 の」「开 天」开一个字（所有歌名里的这个字都会亮出来），「开 abc」一次开好几个
+  · 发「6 提示」（或「6. 提示」「提示 6」）只提示第 6 首：第一次给版本 + 开一个字，之后每次再开一个字
   · 直接发歌名（或常用外号）就算猜，猜中的那首会写上你的名字
 /猜曲绘 [游戏] [定数]  曲绘先糊成 4×4 的色块，发「提示」一次比一次清楚，直接发歌名猜
-/猜谱面 [游戏] [定数]  从 sdvx.in 的谱面里截一个小节，发「提示」多放一个小节（最多 8 个）
+/猜谱面 [游戏] [区服] [版本] [定数]  从 sdvx.in 的谱面里截一个小节，发「提示」多放一个小节（最多 8 个）
 发「结束」公布答案。
 游戏：舞萌 / 中二 / 音击 / sdvx / pjsk（猜谱面没有舞萌：sdvx.in 上没有舞萌谱面）
+版本：舞萌 / 中二可以写区服（国服 / 国际服 / 日服，不写 = 日服全曲）和哪一代（「xversex」「amazon+」「宙」「祭」），答案会写上是哪一代
 定数：不写 = 随机；「14以上」「13.5以下」「14.7」「14-14.5」；「15」「15+」按游戏里的等级：
 　　　中二 15 = 15.0～15.4、15+ = 15.5～15.9；舞萌 14 = 14.0～14.5、14+ = 14.6～14.9；音击 14 = 14.0～14.6、14+ = 14.7～14.9
 　　　sdvx / pjsk 没有定数，按等级算：「/猜曲绘 sdvx 18以上」「/猜歌 pjsk 30以上」
-例：/猜歌 舞萌 14以上　/猜曲绘 中二 14.7　/猜谱面 音击 13-14"""
+例：/猜歌 舞萌 14以上　/猜曲绘 中二 14.7　/猜谱面 音击 13-14　/猜歌 中二 国际服 xversex"""
 
 
 def _png(img: Image.Image, fmt: str = "PNG", quality: int = 88) -> bytes:
@@ -76,6 +81,9 @@ class GameCommands:
         self.help = help                              # async () -> Reply：图片版帮助；没有就发文字
         self.rnd = rnd or random.Random()
         self.sessions: dict[str, Session] = {}
+        self.on_message_log = None    # (origin, ctx, text) → None：局里的每条消息（别名收集用）
+        self.on_title_solve = None    # (origin, session, index, ctx, guess) → None：有人用原名猜中
+        self.on_alias_solve = None    # 同上：有人用已有外号猜中（外号少的歌也问一句「还有别的叫法吗」）
 
     # ---------------------------------------------------------------- entry points
     def is_start(self, text: str) -> str | None:
@@ -142,8 +150,18 @@ class GameCommands:
             return Reply().say(f"这里还有一局{G.KIND_LABEL[cur.kind]}没结束（{G.GAME_LABEL[cur.game]}）。"
                                "接着猜，或者发「结束」公布答案")
         game, region, rng, unknown = self._parse(kind, words, ctx.uid)
+        ver = ""
         if unknown:
-            return Reply().say(f"没看懂「{' '.join(unknown)}」。\n{HELP}")
+            vers = self.data.versions(game) if hasattr(self.data, "versions") else []
+            ver = G.match_version(" ".join(unknown), vers) or ""
+            if not ver and len(unknown) > 1:                    # 「中二 AMAZON PLUS 14以上」之外还夹了别的词
+                ver = next((v for w in unknown if (v := G.match_version(w, vers))), "")
+                unknown = [w for w in unknown if not G.match_version(w, vers)] if ver else unknown
+            else:
+                unknown = [] if ver else unknown
+            if unknown:
+                more = ("；版本可以写：" + "、".join(v for v, _ in vers[-8:]) + " …") if vers else ""
+                return Reply().say(f"没看懂「{' '.join(unknown)}」{more}\n{HELP}")
         if game not in SUPPORTED[kind]:
             if kind == "chart" and game == "mai":
                 return Reply().say("sdvx.in 没有舞萌的谱面，猜谱面可以选：中二 / 音击 / sdvx / pjsk")
@@ -153,38 +171,46 @@ class GameCommands:
             if kind == "letters":
                 if game in ("sdvx", "pjsk"):
                     await self.data.ensure_charts(game)
-                return self._start_letters(origin, game, region, rng)
+                return self._start_letters(origin, game, region, rng, ver)
             if kind == "jacket":
                 if game in ("sdvx", "pjsk"):
                     await self.data.ensure_charts(game)
-                return await self._start_jacket(origin, game, region, rng)
-            return await self._start_chart(origin, game, rng)
+                return await self._start_jacket(origin, game, region, rng, ver)
+            return await self._start_chart(origin, game, rng, ver, region)
         except Exception as e:  # noqa: BLE001
             log.warning(f"[otoge] game start failed: {type(e).__name__}: {e}", exc_info=True)
             self.sessions.pop(origin, None)
             return Reply().say("开局失败了（曲库或图片没拿到），等会儿再试试")
 
-    def _range_note(self, rng: Range, game: str = "") -> str:
-        if rng.any:
-            return "随机"
-        return f"{'等级' if game in ('sdvx', 'pjsk') else '定数'} {rng.text}"
+    def _range_note(self, rng: Range, game: str = "", ver: str = "", region: str = "jp") -> str:
+        bits = []
+        if region != "jp" and game in ("mai", "chu"):
+            bits.append({"cn": "国服", "intl": "国际服"}.get(region, region))
+        if ver:
+            bits.append(ver)
+        bits.append("随机" if rng.any else f"{'等级' if game in ('sdvx', 'pjsk') else '定数'} {rng.text}")
+        return " · ".join(bits)
 
-    def _start_letters(self, origin: str, game: str, region: str, rng: Range) -> Reply:
-        songs = [s for s in self.data.songs(game, region) if any(G._maskable(c) for c in s.title)]
+    @staticmethod
+    def _by_ver(songs, ver: str):
+        return [s for s in songs if s.version == ver] if ver else songs
+
+    def _start_letters(self, origin: str, game: str, region: str, rng: Range, ver: str = "") -> Reply:
+        songs = [s for s in self._by_ver(self.data.songs(game, region), ver) if any(G._maskable(c) for c in s.title)]
         picks = G.pick(songs, rng, LETTERS_N, rnd=self.rnd)
         if not picks:
-            return Reply().say(f"{G.GAME_LABEL[game]}里没有符合「{rng.text}」的歌")
-        s = Session("letters", game, picks, range_text=self._range_note(rng, game))
+            return Reply().say(f"{G.GAME_LABEL[game]}里没有符合「{self._range_note(rng, game, ver, region)}」的歌")
+        s = Session("letters", game, picks, range_text=self._range_note(rng, game, ver, region))
         self.sessions[origin] = s
         head = f"开字母 · {G.GAME_LABEL[game]} · {s.range_text} · {len(picks)} 首"
         tail = "发「开 a」开字，直接发歌名猜，发「结束」公布答案"
         return Reply().say(f"{head}\n{s.letters_board()}\n{tail}")
 
-    async def _start_jacket(self, origin: str, game: str, region: str, rng: Range) -> Reply:
-        songs = self.data.songs(game, region)
+    async def _start_jacket(self, origin: str, game: str, region: str, rng: Range, ver: str = "") -> Reply:
+        songs = self._by_ver(self.data.songs(game, region), ver)
         cands = G.pick(songs, rng, 6, rnd=self.rnd)
         if not cands:
-            return Reply().say(f"{G.GAME_LABEL[game]}里没有符合「{rng.text}」的歌")
+            return Reply().say(f"{G.GAME_LABEL[game]}里没有符合「{self._range_note(rng, game, ver, region)}」的歌")
         for p in cands:
             try:
                 img = await asyncio.wait_for(self.data.jacket(p.song), 25)
@@ -192,7 +218,7 @@ class GameCommands:
                 img = None
             if img is None:
                 continue
-            s = Session("jacket", game, [p], range_text=self._range_note(rng, game), data={"img": img})
+            s = Session("jacket", game, [p], range_text=self._range_note(rng, game, ver, region), data={"img": img})
             self.sessions[origin] = s
             pic = G.mosaic(img, G.JACKET_STEPS[0])
             return Reply(image=_png(pic)).say(
@@ -200,12 +226,13 @@ class GameCommands:
                 f"（还能提示 {len(G.JACKET_STEPS) - 1} 次），发「结束」公布答案")
         return Reply().say("这几首的曲绘都没拿到，等会儿再试试")
 
-    async def _start_chart(self, origin: str, game: str, rng: Range) -> Reply:
+    async def _start_chart(self, origin: str, game: str, rng: Range, ver: str = "", region: str = "jp") -> Reply:
         await self.data.ensure_charts(game)
-        songs = self.data.chart_songs(game)
+        region = region if game == "chu" else "jp"
+        songs = self._by_ver(self.data.chart_songs(game, region) if region != "jp" else self.data.chart_songs(game), ver)
         cands = G.pick(songs, rng, 4, rnd=self.rnd)
         if not cands:
-            return Reply().say(f"sdvx.in 上 {G.GAME_LABEL[game]} 没有符合「{rng.text}」的谱面")
+            return Reply().say(f"sdvx.in 上 {G.GAME_LABEL[game]} 没有符合「{self._range_note(rng, game, ver, region)}」的谱面")
         for p in cands:
             try:
                 got = await asyncio.wait_for(self.data.chart_picture(p.chart), 60)
@@ -213,10 +240,13 @@ class GameCommands:
                 log.info(f"[otoge] chart picture failed: {type(e).__name__}: {e}")
                 got = None
             if not got or len(got[1]) < 2:
+                e, key = p.chart.ref if isinstance(getattr(p.chart, "ref", None), tuple) else (None, "")
+                log.info(f"[otoge] chart picture missing: {game} {getattr(e, 'id', '?')} {key} "
+                         f"{getattr(getattr(self.data, '_sx', None), 'last_error', '')}")
                 continue
             img, rects = got
             start = G.choose_window(len(rects), CHART_MAX, self.rnd)
-            s = Session("chart", game, [p], range_text=self._range_note(rng, game),
+            s = Session("chart", game, [p], range_text=self._range_note(rng, game, ver, region),
                         data={"img": img, "rects": rects, "start": start})
             self.sessions[origin] = s
             return Reply(image=self._chart_pic(s)).say(
@@ -243,6 +273,11 @@ class GameCommands:
     async def on_message(self, origin: str, s: Session, ctx, t: str) -> Reply | None:
         low = t.lower()
         who = (getattr(ctx, "name", "") or "").strip() or str(getattr(ctx, "uid", "") or "有人")
+        if self.on_message_log is not None:
+            try:
+                self.on_message_log(origin, ctx, t)
+            except Exception:  # noqa: BLE001
+                pass
         if low in END_WORDS or low in {"猜歌 结束", "猜歌结束"}:
             return self.finish(origin, s)
         if low in STATUS_WORDS:
@@ -252,13 +287,19 @@ class GameCommands:
             m = re.match(r"^开\s*(.+)$", t)
             if m and len(m.group(1).replace(" ", "")) <= 6:
                 return self._open(origin, s, m.group(1))
+            m = LETTER_HINT.match(t.strip())
+            if m:
+                return self._letter_hint(origin, s, int(m.group(1) or m.group(2)))
+            if low in ("提示", "hint"):
+                return Reply().say("开字母要说提示第几首：发「6 提示」（或「6. 提示」「提示 6」），"
+                                   "第一次给版本 + 开一个字，之后每次再开一个字")
         elif low in HINT_WORDS:
             return self._hint(s)
         explicit = False
         m = re.match(r"^猜\s*(.+)$", t)
         if m:
             t, explicit = m.group(1).strip(), True
-        return self._guess(origin, s, who, t, explicit)
+        return self._guess(origin, s, who, t, explicit, ctx)
 
     def _status(self, s: Session) -> Reply:
         if s.kind == "letters":
@@ -276,7 +317,7 @@ class GameCommands:
         s.opened.update(fresh)
         hit = 0
         for i, p in enumerate(s.picks):
-            if i not in s.solved and G.fully_open(p.song.title, s.opened):
+            if i not in s.solved and G.fully_open(p.song.title, s.opened, s.shown(i)):
                 s.solved[i] = ""
             if any(G.char_key(ch) in fresh for ch in p.song.title):
                 hit += 1
@@ -285,7 +326,40 @@ class GameCommands:
             return self.finish(origin, s, prefix=note)
         return Reply().say(f"{note}\n{s.letters_board()}")
 
+    def _letter_hint(self, origin: str, s: Session, n: int) -> Reply:
+        """开字母「6 提示」：第一次给版本 + 只在这首里开一个字，之后每次再开一个字（最后一个字不给）。"""
+        i = n - 1
+        if not 0 <= i < len(s.picks):
+            return Reply().say(f"这局只有 {len(s.picks)} 首，发「1 提示」到「{len(s.picks)} 提示」")
+        if i in s.solved:
+            return Reply().say(f"第 {n} 首已经出来了")
+        now = time.time()
+        last = s.data.setdefault("last_hint_i", {})
+        if now - last.get(i, 0) < HINT_DEBOUNCE:                  # 几个人同时喊「6 提示」：只算一次
+            return Reply()
+        last[i] = now
+        s.touch()
+        song = s.picks[i].song
+        first = i not in s.hinted
+        shown = s.hinted.setdefault(i, set())
+        hidden = G.hidden_positions(song.title, s.opened, shown)
+        bits = []
+        if first and song.version:
+            bits.append(f"版本：{song.version}")
+        if len(hidden) <= 1:
+            bits.append("只剩最后一个字了，自己猜吧" if hidden else "字都开完了")
+        else:
+            pos = self.rnd.choice(hidden)
+            shown.add(pos)
+            bits.append(f"开了一个「{song.title[pos]}」")
+        line = f"{n:>2}. {G.mask(song.title, s.opened, shown)}" + (f"  （{song.version}）" if song.version else "")
+        return Reply().say(f"第 {n} 首提示：" + "，".join(bits) + f"\n{line}")
+
     def _hint(self, s: Session) -> Reply:
+        now = time.time()
+        if now - s.data.get("last_hint", 0) < HINT_DEBOUNCE:      # 几个人同时喊「提示」：只算一次，别的不回
+            return Reply()                                         # 空回复：吞掉这条，也不交给聊天模型
+        s.data["last_hint"] = now
         s.touch()
         if s.kind == "jacket":
             if s.stage + 1 >= len(G.JACKET_STEPS):
@@ -300,7 +374,7 @@ class GameCommands:
         s.stage += 1
         return Reply(image=self._chart_pic(s)).say(f"{s.stage + 1} 个小节")
 
-    def _guess(self, origin: str, s: Session, who: str, t: str, explicit: bool) -> Reply | None:
+    def _guess(self, origin: str, s: Session, who: str, t: str, explicit: bool, ctx=None) -> Reply | None:
         if not t or len(t) > 80:
             return None
         hits = [i for i, p in enumerate(s.picks) if i not in s.solved and G.is_answer(t, p.song)]
@@ -309,6 +383,12 @@ class GameCommands:
         s.touch()
         for i in hits:
             s.solved[i] = who
+            hook = self.on_title_solve if G.by_title(t, s.picks[i].song) else self.on_alias_solve
+            if hook is not None:
+                try:
+                    hook(origin, s, i, ctx, t)
+                except Exception:  # noqa: BLE001
+                    pass
         if s.kind == "letters":
             got = "、".join(f"{i + 1}. {s.picks[i].song.title}" for i in hits)
             if s.done:
@@ -326,13 +406,13 @@ class GameCommands:
             for i, p in enumerate(s.picks):
                 who = s.solved.get(i)
                 mark = f"（{who}）" if who else "（开出来了）" if who == "" else ""
-                lines.append(f"{i + 1:>2}. {p.song.title}{mark}")
+                lines.append(f"{i + 1:>2}. {p.song.title}{G.ver_tag(p.song)}{mark}")
             sb = s.scoreboard()
             if sb:
                 lines.append(sb)
             return Reply().say("\n".join(lines))
         p = s.picks[0]
-        lines.append(f"答案：{G.chart_answer(p)}" if s.kind == "chart" else f"答案：{p.song.title}")
+        lines.append(f"答案：{G.chart_answer(p)}" if s.kind == "chart" else f"答案：{p.song.title}{G.ver_tag(p.song)}")
         if s.kind == "jacket":
             return Reply(image=self._jacket_pic(s, full=True)).say("\n".join(lines))
         return Reply().say("\n".join(lines))

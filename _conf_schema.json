@@ -21,6 +21,62 @@
     "default": true,
     "hint": "关掉后这三个指令和局里的「开 a」「提示」都不再处理。"
   },
+  "alias_collect_enabled": {
+    "description": "猜歌时收集别名（群里投票）",
+    "type": "bool",
+    "default": true,
+    "hint": "有人用原名猜中后，回看这一局里没猜中的短消息，用大模型（同「自然语言」的模型）挑一条像外号的，在群里发起投票；通过了加进本机别名库。只在群里，私聊不收集。"
+  },
+  "alias_vote_yes": {
+    "description": "别名投票：几票 y 通过",
+    "type": "int",
+    "default": 3
+  },
+  "alias_vote_no": {
+    "description": "别名投票：几票 n 否决",
+    "type": "int",
+    "default": 2
+  },
+  "alias_vote_minutes": {
+    "description": "别名投票：多少分钟内有效",
+    "type": "int",
+    "default": 10
+  },
+  "alias_checks_per_hour": {
+    "description": "别名收集：每个群每小时最多问几次大模型（0 = 不限）",
+    "type": "int",
+    "default": 0,
+    "hint": "有人用原名猜中、这局里又有没猜中的短消息时才会问一次；用的是 flash，很便宜。想省就填个数字。"
+  },
+  "alias_llm_threshold": {
+    "description": "别名收集：模型把握多大才发起投票（0~1）",
+    "type": "float",
+    "default": 0.75
+  },
+  "alias_provider_id": {
+    "description": "别名收集用的模型（提供商 ID）",
+    "type": "string",
+    "default": "",
+    "_special": "select_provider",
+    "hint": "留空 = 自动找名字里带 flash 的模型（便宜）；找不到才用「自然语言」那个 / 当前对话模型。"
+  },
+  "alias_ask_enabled": {
+    "description": "别名收集：模型没找到外号时，问群友「这首叫什么」",
+    "type": "bool",
+    "default": true,
+    "hint": "有人用原名猜中、模型又没从聊天里找到外号时，问一句；群友回「别名 xxx」就拿去投票（本地检查，不花 token）。只认「别名 / 外号」开头的回复，别的聊天不碰。"
+  },
+  "alias_ask_max_known": {
+    "description": "别名收集：这首歌已有外号少于几个才追问（0 = 不管有几个都问）",
+    "type": "int",
+    "default": 5,
+    "hint": "外号已经很多的热门歌就不问了，免得刷屏。"
+  },
+  "alias_ask_cooldown_minutes": {
+    "description": "别名收集：同一个群多少分钟内最多问一次（0 = 不限，默认）",
+    "type": "int",
+    "default": 0
+  },
   "nl_rules_first": {
     "description": "意图识别省 token：规则能拿准的句子（舞萌b50、X是什么歌…）不再问大模型，只有规则拿不准且像在提问时才问",
     "type": "bool",
@@ -157,15 +213,15 @@
     "default": ""
   },
   "bind_web_enabled": {
-    "description": "网页绑定：群友私聊「/查分 网页绑定」拿 10 分钟链接，用手机网页绑定账号",
+    "description": "网页绑定 + 传分网站：群友发「/网页绑定」拿 10 分钟绑定链接、发「/传分」进 SDVX / 音击官服的传分网站",
     "type": "bool",
     "default": true
   },
   "bind_web_url": {
-    "description": "网页绑定的公网地址（例如 https://bind.example.com）",
+    "description": "网页绑定 / 传分网站的公网地址（你自己的域名，例如 https://bind.example.com）",
     "type": "string",
     "default": "",
-    "hint": "留空则读插件数据目录里的 bindweb.json（隧道脚本会写）。插件只监听本机，公网要靠 Cloudflare Tunnel 之类转进来"
+    "hint": "每个部署的 bot 都要填自己的地址（插件里没有写死任何人的域名）。留空则读插件数据目录里的 bindweb.json（隧道脚本会写）；都没有的话 /网页绑定、/传分 会提示主人还没配好。插件只监听本机，公网要靠 Cloudflare Tunnel 之类转进来"
   },
   "bind_web_port": {
     "description": "网页绑定服务的本机端口（只监听 127.0.0.1）",
@@ -174,7 +230,7 @@
     "hint": "别用 6199：那是 AstrBot aiocqhttp 反向 WebSocket（NapCat）的端口；填了也会被自动改成 36199"
   },
   "bind_web_group": {
-    "description": "群里发「/网页绑定」也给链接（@ 发消息的人，链接只认第一个打开它的设备）",
+    "description": "群里发「/网页绑定」也给链接（@ 发消息的人，点开后要本人在 QQ 回网页上的确认码）",
     "type": "bool",
     "default": true,
     "hint": "关掉的话群里只提示去私聊要链接"

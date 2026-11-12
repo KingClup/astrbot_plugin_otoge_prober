@@ -72,12 +72,91 @@ class CoreWebUI:
                            "images": chart_imgs},
             },
             "priv_users": priv,
+            "scorebook": self._safe(lambda: {"users": p.scorebook.store.count_users(),
+                                             "songs": {g: len(c) for g, c in p.scorebook.cats.items()},
+                                             "web": self._web_status()}, {}),
             "lxns": self._lx_status(),
-            "minigames": {"enabled": bool(p._cfg("games_enabled", True)), "sessions": sessions},
+            "minigames": {"enabled": self._safe(p._games_on, True), "sessions": sessions,
+                          "from_webui": self._safe(lambda: p.prefs.games_enabled() is not None, False)},
+            "groups": await self._groups_safe(),
+            "invite_cfg": self._safe(p._invite_cfg, {}),
             "imgcache": {"files": cache.get("files", 0), "mb": round(cache.get("bytes", 0) / 1048576, 1)},
             "nl": {"require_wake": bool(p._cfg("nl_require_wake", True)),
                    "provider": p._cfg("nl_provider_id", "") or "（跟随当前会话）"},
         }
+
+    # ---------- 传分网站（SDVX / 音击官服手动传分） ----------
+    def _web_status(self) -> dict:
+        p = self.p
+        bw = getattr(p, "bindweb", None)
+        url = self._safe(p.bindweb_url, "") or ""
+        return {"enabled": bw is not None, "running": bool(bw is not None and bw.running), "url": url,
+                "scores_url": (url + "/scores") if url else "", "port": getattr(bw, "port", None),
+                "from": "配置 bind_web_url" if str(p._cfg("bind_web_url", "") or "").strip() else
+                        ("数据目录 bindweb.json（隧道脚本写的）" if url else "没配")}
+
+    async def scorebook(self, params: dict) -> dict:
+        import os
+        import time
+        try:
+            from ..scorebook import calc as K
+        except ImportError:  # tests import packages top-level
+            from scorebook import calc as K
+        from .bindweb import mask_qq
+        sb = self.p.scorebook
+        cats = {}
+        for g, c in sb.cats.items():
+            cats[g] = {"songs": len(c), "charts": len(c.charts), "built": c.built, "source": getattr(c, "source", ""),
+                       "aliases": sum(len(v) for v in (c.aliases or {}).values()),
+                       "last_refresh": time.strftime("%Y-%m-%d %H:%M", time.localtime(sb.last_refresh[g]))
+                       if sb.last_refresh.get(g) else "", "error": sb.last_error.get(g, "")}
+        jk_dir = os.path.join(sb.root, "jk")
+        jk = self._safe(lambda: len(os.listdir(jk_dir)), 0) or 0
+        sessions = self._safe(sb.sessions.per_user, {}) or {}
+        users = []
+        for uid in self._safe(sb.store.uids, []) or []:
+            d = self._safe(lambda uid=uid: sb.store.user(uid), {}) or {}
+            sd, gk = d.get("sdvx") or {}, d.get("geki") or {}
+            if not sd and not gk and uid not in sessions and not (getattr(self.p, "geki_official", None) and
+                                                                    self._safe(lambda uid=uid: self.p.geki_official.bound(uid), False)):
+                continue
+            row = {"uid": uid, "qq": mask_qq(uid), "name": d.get("name", ""), "sdvx": len(sd), "geki": len(gk),
+                   "sessions": sessions.get(uid, 0), "vf": "", "rating": "", "official": "",
+                   "updated": time.strftime("%Y-%m-%d %H:%M", time.localtime(max(
+                       [float(r.get("t") or 0) for r in (*sd.values(), *gk.values())] or [0]))) if (sd or gk) else ""}
+            off = getattr(self.p, "geki_official", None)
+            if off is not None and self._safe(lambda uid=uid: off.bound(uid), False):
+                m = off.last(uid)
+                row["official"] = ("没开 Standard" if m.get("std") is False else
+                                   (f"同步 {time.strftime('%m-%d %H:%M', time.localtime(m['t']))}" if m.get("t") else "已绑定"))
+            if sd:
+                row["vf"] = self._safe(lambda: K.fmt_k(K.sdvx_total(K.sdvx_rows(sb.cats["sdvx"], sd))), "")
+            if gk:
+                row["rating"] = self._safe(lambda: K.GR.fmt(K.geki_best(sb.cats["geki"], gk).calc or 0), "")
+            users.append(row)
+        users.sort(key=lambda r: r["updated"], reverse=True)
+        off = getattr(self.p, "geki_official", None)
+        return {"web": self._web_status(), "catalogs": cats, "jackets": jk, "users": users,
+                "geki_official": self._safe(lambda: off.count(), 0) if off is not None else 0,
+                "sessions": sum(sessions.values())}
+
+    async def scorebook_refresh(self, params: dict) -> dict:
+        """马上重新拉 SDVX（Tachi）/ 音击（otoge-db）曲库。"""
+        sb = self.p.scorebook
+        out = {}
+        for g in ("sdvx", "geki"):
+            try:
+                out[g] = {"ok": True, "songs": await sb.refresh(g, force=True)}
+            except Exception as e:  # noqa: BLE001
+                out[g] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
+        self._safe(sb.sync_aliases)
+        return out
+
+    async def scorebook_logout(self, params: dict) -> dict:
+        uid = str(params.get("uid") or "").strip()
+        if not uid.isdigit():
+            raise ValueError("QQ 号不对")
+        return {"dropped": self.p.scorebook.sessions.drop_user(uid)}
 
     def _lx_status(self) -> dict:
         p = self.p
@@ -151,6 +230,64 @@ class CoreWebUI:
         p.service.lx_dev = p.chu_svc.lx_dev = str(p._cfg("lx_dev_token", "") or "").strip() or tok
         return self._lx_status()
 
+    # ---------- 别名收集 ----------
+    async def aliases(self, params: dict) -> dict:
+        import time
+        from . import aliaslib as AL
+        p = self.p
+        av = p.alias_votes
+        now = time.time()
+        votes = [{"origin": o, "game": v.game, "alias": v.alias, "title": v.title, "reason": v.reason,
+                  "yes": len(v.yes), "no": len(v.no), "left_min": max(0, int((v.started + av.minutes * 60 - now) / 60)),
+                  "queued": len(av.queue.get(o) or [])} for o, v in av.active.items()]
+        hist = sorted(({"key": k, **v} for k, v in av.history.items()), key=lambda x: -float(x.get("ts") or 0))[:80]
+        for h in hist:
+            h["game"] = h["key"].split("|")[0]
+            h["date"] = time.strftime("%m-%d %H:%M", time.localtime(float(h.get("ts") or 0)))
+            h.pop("key", None)
+        lib = await asyncio.to_thread(AL.collect, p)
+        provs = []
+        for prov in self._safe(lambda: p.context.get_all_providers(), []) or []:
+            m = self._safe(lambda prov=prov: prov.meta())
+            if m is not None:
+                provs.append({"id": str(m.id), "model": str(getattr(m, "model", "") or "")})
+        return {"settings": p.alias_settings(), "auto_provider": p._alias_provider_id(), "providers": provs,
+                "votes": votes, "history": hist, "counts": lib.counts(),
+                "library": {g: lib.doc(g)["songs"] for g in AL.GAMES},
+                "export_dir": __import__("os").path.join(p.root, "alias_library")}
+
+    async def alias_settings(self, params: dict) -> dict:
+        return {"settings": self.p.set_alias_settings(params or {})}
+
+    async def alias_vote_end(self, params: dict) -> dict:
+        """结束一个在投的：result = pass（直接收录）/ reject（作罢）/ cancel（不算，以后还能再提）。"""
+        p, origin, result = self.p, str(params.get("origin") or ""), str(params.get("result") or "")
+        v = p.alias_votes.active.get(origin)
+        if v is None:
+            raise ValueError("这个投票已经结束了")
+        p.alias_votes.active.pop(origin, None)
+        if result == "pass":
+            p.alias_votes._remember(v, "pass")
+            err = p._alias_apply(v)
+            if err:
+                raise ValueError(err)
+        elif result == "reject":
+            p.alias_votes._remember(v, "reject")
+        nxt = p.alias_votes.next_intro(origin)
+        if nxt:
+            await p._notify_private(origin, nxt)
+        return {"ok": True}
+
+    async def alias_delete(self, params: dict) -> dict:
+        game, alias = str(params.get("game") or ""), str(params.get("alias") or "")
+        ids = params.get("ids") or {}
+        ok = False
+        for space, sid in (ids.items() if isinstance(ids, dict) else []):     # 同一首歌可能在几份表里都有
+            ok = await asyncio.to_thread(self.p.alias_remove, game, str(space), str(sid), alias) or ok
+        if not ok:
+            raise ValueError("没删掉（可能已经不在了）")
+        return {"ok": True}
+
     async def game_end(self, params: dict) -> dict:
         origin = str(params.get("origin") or "")
         s = self.p.games.sessions.get(origin)
@@ -158,6 +295,64 @@ class CoreWebUI:
             raise ValueError("这局已经结束了")
         self.p.games.sessions.pop(origin, None)
         return {"origin": origin}
+
+    async def _groups_safe(self) -> list[dict]:
+        try:
+            return await self._groups()
+        except Exception:  # noqa: BLE001
+            return []
+
+    async def _groups(self) -> list[dict]:
+        """自然语言 / 热闹邀请两个开关的群列表，带群名（从 QQ 读，读不到用上次的）。"""
+        p = self.p
+        names = await p._refresh_group_names() if hasattr(p, "_refresh_group_names") else {}
+        cfg = self._safe(p._invite_cfg, {}) or {}
+        out = []
+        for gid, sw in sorted(p.prefs.group_switches().items()):
+            row = {"group": gid, "name": (names or {}).get(gid, ""), **sw}
+            if cfg and hasattr(p, "invite"):
+                row["invite_state"] = self._safe(lambda gid=gid: p.invite.snapshot(gid, cfg), {})
+            out.append(row)
+        return out
+
+    async def group_names(self, params: dict) -> dict:
+        return {"names": await self.p._refresh_group_names(force=True)}
+
+    async def invite_set(self, params: dict) -> dict:
+        gid = str(params.get("group") or "").strip()
+        if not gid.isdigit():
+            raise ValueError("群号应该是数字")
+        on = bool(params.get("on"))
+        self.p.prefs.set_invite(gid, on)
+        return {"group": gid, "on": on}
+
+    async def group_add(self, params: dict) -> dict:
+        gid = str(params.get("group") or "").strip()
+        if not gid.isdigit():
+            raise ValueError("群号应该是数字")
+        self.p.prefs.add_group(gid)
+        return {"group": gid}
+
+    async def group_remove(self, params: dict) -> dict:
+        gid = str(params.get("group") or "").strip()
+        self.p.prefs.remove_group(gid)
+        return {"group": gid}
+
+    async def invite_settings(self, params: dict) -> dict:
+        try:
+            from ..games.invite import clamp_settings
+        except ImportError:  # tests import packages top-level
+            from games.invite import clamp_settings
+        vals = clamp_settings(params.get("settings") or {})
+        self.p.prefs.set_invite_settings(vals)
+        return {"settings": vals}
+
+    async def games_switch(self, params: dict) -> dict:
+        on = bool(params.get("on"))
+        self.p.prefs.set_games_enabled(on)
+        if not on:
+            self.p.games.sessions.clear()            # 关掉就把正在玩的局也收了
+        return {"on": on}
 
     async def llm_set(self, params: dict) -> dict:
         gid = str(params.get("group") or "").strip() or None
@@ -252,11 +447,24 @@ class CoreWebUI:
 
 
 ROUTES = {
+    "scorebook": ("GET", "scorebook"),
+    "scorebook/refresh": ("POST", "scorebook_refresh"),
+    "scorebook/logout": ("POST", "scorebook_logout"),
+    "aliases": ("GET", "aliases"),
+    "aliases/settings": ("POST", "alias_settings"),
+    "aliases/vote": ("POST", "alias_vote_end"),
+    "aliases/delete": ("POST", "alias_delete"),
     "assets": ("GET", "assets"),
     "assets/delete": ("POST", "assets_delete"),
     "assets/thumb": ("GET", "assets_thumb"),
     "status": ("GET", "status"),
     "llm": ("POST", "llm_set"),
+    "invite": ("POST", "invite_set"),
+    "invite/settings": ("POST", "invite_settings"),
+    "group/add": ("POST", "group_add"),
+    "group/remove": ("POST", "group_remove"),
+    "group/names": ("POST", "group_names"),
+    "games/switch": ("POST", "games_switch"),
     "catalog_server": ("POST", "catalog_server"),
     "help": ("GET", "help_preview"),
     "game_end": ("POST", "game_end"),

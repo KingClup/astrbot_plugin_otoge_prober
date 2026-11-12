@@ -38,6 +38,8 @@ _DF_DIFF = ("basic", "advanced", "expert", "master", "remaster")
 _LX_DIFF = _DF_DIFF
 _LX_TITLE_KIND = {"normal": "normal", "bronze": "bronze", "silver": "silver", "gold": "gold", "rainbow": "rainbow"}
 LX_ICON = "https://assets2.lxns.net/maimai/icon/{id}.png"
+LX_PLATE = "https://assets2.lxns.net/maimai/plate/{id}.png"
+LX_FRAME = "https://assets2.lxns.net/maimai/frame/{id}.png"
 
 
 def lx_score(r: dict) -> Score | None:
@@ -66,10 +68,17 @@ def lx_score(r: dict) -> Score | None:
 def lx_profile(d: dict) -> Profile:
     trophy = d.get("trophy") or {}
     icon = d.get("icon") or {}
+    plate = d.get("name_plate") or {}
+    frame = d.get("frame") or {}
     color = str(trophy.get("color") or "normal").lower()
+    cls = d.get("class_rank")
     return Profile(name=d.get("name") or "", rating=int(d.get("rating") or 0), title=trophy.get("name") or "",
                    title_kind=_LX_TITLE_KIND.get(color, "normal"),
                    icon_url=LX_ICON.format(id=icon["id"]) if icon.get("id") is not None else "",
+                   plate_url=LX_PLATE.format(id=plate["id"]) if plate.get("id") is not None else "",
+                   frame_url=LX_FRAME.format(id=frame["id"]) if frame.get("id") is not None else "",
+                   # 阶级（B5 … LEGEND）：落雪给的是游戏里的编号，图用本地 themes/icons/class_NN.png
+                   class_rank=f"icon:class_{int(cls):02d}" if isinstance(cls, int) and 0 <= cls <= 25 else "",
                    stars=d.get("star"), friend_code=str(d.get("friend_code") or ""), region="cn",
                    uploaded_at=str(d.get("upload_time") or ""))
 

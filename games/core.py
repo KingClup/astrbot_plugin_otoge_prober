@@ -41,6 +41,7 @@ class Song:
     aliases: list[str] = field(default_factory=list)
     charts: list[Chart] = field(default_factory=list)
     ref: object = None           # source-specific handle (for jackets)
+    version: str = ""            # 第一次收录的版本（舞萌 / 中二；别的游戏没有就空着）
 
     def answers(self) -> set[str]:
         keys = {norm(self.title), *(norm(a) for a in self.aliases), *(norm(p) for p in title_parts(self.title))}
@@ -98,6 +99,49 @@ def is_answer(guess: str, song: Song) -> bool:
         if difflib.SequenceMatcher(None, g, t).ratio() >= 0.88:
             return True
     return False
+
+
+def by_title(guess: str, song: Song) -> bool:
+    """猜中用的是原名（或原名的一部分 / 原名打错一点），不是靠已有外号。"""
+    g = norm(guess)
+    if not g or g in {norm(a) for a in song.aliases}:
+        return False
+    if g in {norm(song.title), *(norm(p) for p in title_parts(song.title))}:
+        return True
+    return len(g) >= 5 and difflib.SequenceMatcher(None, g, norm(song.title)).ratio() >= 0.88
+
+
+_VER_PREFIX = ("chunithm", "maimaidx", "maimai")
+_VER_ALIAS = {"dx": "でらっくす", "deluxe": "でらっくす", "でらっくす": "でらっくす", "でらっくすplus": "でらっくすplus",
+              "dx+": "でらっくすplus", "dxplus": "でらっくすplus", "初代": "maimai", "无印": "chunithm"}
+
+
+def version_keys(v: str) -> set[str]:
+    """一个版本名能被怎么叫：完整名、去掉 CHUNITHM / maimai 前缀的、括号里的汉字（舞萌：宙 / 祭 / 双 …）。"""
+    keys = {norm(v)}
+    m = re.search(r"[(（]([^)）]+)[)）]", v)
+    if m:
+        keys.add(norm(m.group(1)))
+        keys.add(norm(v[:m.start()]))
+    for k in list(keys):
+        for pre in _VER_PREFIX:
+            if k.startswith(pre) and len(k) > len(pre):
+                keys.add(k[len(pre):])
+    return {k for k in keys if k}
+
+
+def match_version(text: str, versions: list[tuple[str, list[str]]]) -> str | None:
+    """「xversex」「amazon+」「AMAZON PLUS」「宙」「dx」→ 版本名；versions = [(版本名, 额外的叫法)]。"""
+    t = unicodedata.normalize("NFKC", text or "").strip().lower()
+    plus = t.endswith("+")
+    k = norm(t[:-1] if plus else t) + ("plus" if plus else "")
+    k = norm(_VER_ALIAS.get(k, k))
+    if not k:
+        return None
+    for v, extra in versions:
+        if k in version_keys(v) or any(k in version_keys(e) for e in extra if e):
+            return v
+    return None
 
 
 # ---------------------------------------------------------------- constant range
@@ -226,18 +270,23 @@ def char_key(ch: str) -> str:
     return unicodedata.normalize("NFKC", ch).casefold()
 
 
-def mask(title: str, opened: set[str]) -> str:
+def mask(title: str, opened: set[str], shown: set[int] = frozenset()) -> str:
+    """shown = 这首歌单独提示出来的位置（「6 提示」只开这一首里的一个字，不影响别的歌）。"""
     out = []
-    for ch in title:
-        if _maskable(ch) and char_key(ch) not in opened:
+    for n, ch in enumerate(title):
+        if _maskable(ch) and char_key(ch) not in opened and n not in shown:
             out.append("＊" if ord(ch) > 0x2E80 else "*")
         else:
             out.append(ch)
     return "".join(out)
 
 
-def fully_open(title: str, opened: set[str]) -> bool:
-    return all(not _maskable(ch) or char_key(ch) in opened for ch in title)
+def fully_open(title: str, opened: set[str], shown: set[int] = frozenset()) -> bool:
+    return all(not _maskable(ch) or char_key(ch) in opened or n in shown for n, ch in enumerate(title))
+
+
+def hidden_positions(title: str, opened: set[str], shown: set[int] = frozenset()) -> list[int]:
+    return [n for n, ch in enumerate(title) if _maskable(ch) and char_key(ch) not in opened and n not in shown]
 
 
 # ---------------------------------------------------------------- 猜曲绘
@@ -331,6 +380,14 @@ class Session:
     def touch(self) -> None:
         self.touched = time.time()
 
+    @property
+    def hinted(self) -> dict[int, set[int]]:
+        """开字母「6 提示」：第几首 → 单独开出来的位置。"""
+        return self.data.setdefault("shown", {})
+
+    def shown(self, i: int) -> set[int]:
+        return self.hinted.get(i, set())
+
     def title_line(self, i: int) -> str:
         p = self.picks[i]
         return p.song.title
@@ -343,7 +400,8 @@ class Session:
                 tag = f"✓ {who}" if who else "✓ 开出来了"
                 lines.append(f"{i + 1:>2}. {p.song.title}  （{tag}）")
             else:
-                lines.append(f"{i + 1:>2}. {mask(p.song.title, self.opened)}")
+                tag = f"  （{p.song.version}）" if i in self.hinted and p.song.version else ""
+                lines.append(f"{i + 1:>2}. {mask(p.song.title, self.opened, self.shown(i))}{tag}")
         opened = "".join(sorted(self.opened)) or "无"
         return "\n".join(lines) + f"\n已开：{opened}"
 
@@ -357,9 +415,13 @@ class Session:
         return "猜中：" + "、".join(f"{k} ×{v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1]))
 
 
+def ver_tag(song: Song) -> str:
+    return f"（{song.version}）" if song.version else ""
+
+
 def chart_answer(p: Pick) -> str:
     c = p.chart
     if c is None:
-        return p.song.title
+        return p.song.title + ver_tag(p.song)
     const = f" {c.const:.1f}" if c.const is not None and p.song.game in ("mai", "chu", "geki") else ""
-    return f"{p.song.title}  [{c.diff} {c.level}{const}]"
+    return f"{p.song.title}{ver_tag(p.song)}  [{c.diff} {c.level}{const}]"

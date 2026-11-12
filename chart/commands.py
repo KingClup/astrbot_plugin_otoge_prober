@@ -97,8 +97,22 @@ class ChartCommands:
         if not words or words[0] in ("帮助", "help", "?"):
             return Reply().say(HELP)
         sub = words[0].lower()
+        if game == "sdvx" and sub in ("绑定", "解绑", "bind", "unbind"):
+            return Reply().say("SDVX 官服不用绑定：e-amusement 不开会员读不到成绩，成绩是你自己在传分网站传的。\n"
+                               "/sdvx 传分 打开传分网站（或 /网页绑定 选 SDVX 直接进）；传错的在网页上改或删，"
+                               "别的设备上登录着不想要了发「/传分 登出」。")
+        if game == "sdvx" and sub in ("最近", "recent"):
+            return Reply().say("SDVX 只有你自己传的成绩，没有游玩记录。看传了的：/sdvx b50、/sdvx 成绩 <歌>")
+        if game == "sdvx" and sub in ("定数", "定数表"):
+            return Reply().say("SDVX 没有另外的定数（∇ 的 18.0～20.9 小数等级就是）。按等级翻歌：传分网站「筛选 → 等级」，发 /sdvx 传分 打开")
+        if game == "sdvx" and sub in ("成绩", "b30", "b40", "刷新成绩"):
+            return Reply().say("看自己传的成绩：/sdvx b50（VF 50 图）；某首歌：/sdvx 成绩 <歌>")
+        if game == "geki" and sub in ("定数", "定数表"):
+            return Reply().say("音击的定数在谱面图里有：/geki 谱面 <歌>；传分网站「找歌传分」打开「详细定数」能看 12 以上每张的定数")
         if game != "chu" and sub in ("b50", "b40", "b30", "绑定", "解绑", "我", "最近", "成绩", "刷新成绩", "定数", "定数表"):
             return Reply().say(f"{GAME_LABEL[game]} 这边只有谱面查询：{CMD[game]} <歌名> [难度]")
+        if sub in ("别名", "外号", "alias") and game != "chu":
+            return await self._alias_show(game, " ".join(words[1:]))
         if sub in ("加别名", "添加别名") and game != "chu":
             return await self._alias_add(game, words[1:])
         if sub in ("刷新", "更新"):
@@ -265,8 +279,41 @@ class ChartCommands:
         yt = e.youtube(key)
         if yt:
             lines.append("谱面确认：" + "  ".join(yt))
+        mine = self.local_aliases(e)
+        if mine:
+            lines.append("本 bot 收录的外号：" + "、".join(mine[:12]) + (f" 等 {len(mine)} 个" if len(mine) > 12 else ""))
         lines.append("sdvx.in：" + e.viewer_url(key))
         return lines
+
+    async def _alias_show(self, game: str, q: str) -> Reply:
+        """/sdvx 别名 <歌>：这首歌在本 bot 有哪些外号（加别名 + 猜歌投票收的；中二 / 舞萌同名歌借用的不列）。"""
+        if not q.strip():
+            return Reply().say(f"用法：/{game} 别名 <歌名>　（教我新外号：/{game} 加别名 <外号> <歌名>）")
+        e, err, note = await self._find(game, q.strip())
+        if e is None:
+            return err
+        mine = self.local_aliases(e)
+        head = (note + "\n" if note else "") + e.title
+        if not mine:
+            return Reply().say(f"{head}\n还没有外号。教我一个：/{game} 加别名 <外号> {e.title}")
+        return Reply().say(f"{head}\n外号：" + "、".join(mine))
+
+    def local_aliases(self, e: Entry) -> list[str]:
+        """只在这个 bot 上有的外号（「加别名」+ 猜歌投票通过的），公共别名库里的不算。"""
+        out = list((getattr(self.src, "aliases", {}).get(e.game) or {}).get(e.id) or [])
+        if e.game == "chu" and self.chu is not None and getattr(self.chu, "aliases", None) is not None:
+            song = getattr(e, "chu_song", None)
+            if song is None:
+                try:
+                    song = next((x for x in self.chu.svc.songdb.songs.values() if x.title == e.title), None)
+                except Exception:  # noqa: BLE001
+                    song = None
+            if song is not None:
+                try:
+                    out += [a for a, sid in self.chu.aliases.local().items() if int(sid) == int(song.id)]
+                except Exception:  # noqa: BLE001
+                    pass
+        return list(dict.fromkeys(out))
 
     def _chu_consts(self, e: Entry, key: str) -> dict:
         if self.chu is None or key not in CHU_DIFF_INDEX:

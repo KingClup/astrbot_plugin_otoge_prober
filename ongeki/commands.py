@@ -41,13 +41,17 @@ BEST_TTL = 10 * 60             # 同一个人 10 分钟内再查 b50：直接用
 REFRESH_SUBS = ("刷新", "更新", "sync", "refresh")
 
 HELP = """音击（オンゲキ）
-/geki b50：私服成绩图（新曲 10 + 旧曲 50 + P 分 50，Re:Fresh 算法）；加「文字」发文字版，「文字 全」列全部
+官服（NET 免费账号看不到成绩，手动传）：
+/geki 传分 [歌名]：打开传分网站（找歌、点难度传分、批量传）
+/geki 传 <歌> <难度> <技术分> [fc|ab] [fb] [★5]：聊天里传一条
+/geki 批量传 换行后一行一首：曲名 | 难度 | 技术分 | 灯 | 铃 | 白金分
+/geki b50 手动：用传的成绩出图
+私服（AquaDX）：
+/geki b50：成绩图（新曲 10 + 旧曲 50 + P 分 50，Re:Fresh 算法）；加「文字」发文字版，「文字 全」列全部
 /geki 刷新：刚打完想马上看新成绩时用（平时 10 分钟内重复查用的是上次的数据）
-/geki 绑定 aqua <用户名>：绑 AquaDX（跟舞萌中二共用，已经绑过就不用再绑）；/geki 网页绑定：在手机网页上填
-/geki 谱面 <歌名> [红|紫|lun]：sdvx.in 谱面图（LUNATIC / Re:MASTER 写 lun）
-现在能查分的私服：AquaDX。MuNET 不让第三方工具读数据，RinNET 的音击还没做
-定数按你游戏客户端的版本取（1.45 bright MEMORY Act.3 / 1.5x Re:Fresh / 1.60 Re:Fresh Act.2）
-也可以写 /音击、/ongeki"""
+/geki 绑定 aqua <用户名>：绑 AquaDX（跟舞萌中二共用）；/geki 网页绑定：网页上选官服（传分）或私服
+/geki 谱面 <歌名> [红|紫|lun]：sdvx.in 谱面图；/geki 别名 <歌>、/geki 加别名 <外号> <歌>
+MuNET 不让第三方工具读数据，RinNET 的音击还没做。也可以写 /音击、/ongeki"""
 
 
 class GekiCommands:
@@ -60,6 +64,7 @@ class GekiCommands:
         self._music: tuple[float, dict] | None = None
         self._best_cache: dict[str, tuple[float, object]] = {}     # uid:username → (拉取时间, best)
         self._img_cache: dict[str, bytes] = {}
+        self.prefs = None                         # core.prefs.Prefs（显示白金分开关）
 
     @property
     def db(self) -> OngekiMusicDB:
@@ -168,12 +173,13 @@ class GekiCommands:
             if len(self._best_cache) > 200:
                 self._best_cache = {k: v for k, v in self._best_cache.items() if time.time() - v[0] < BEST_TTL}
             self._best_cache[ckey] = (time.time(), best)
+        best.show_plat = self.prefs.show(ctx.uid, "geki_plat") if self.prefs is not None else True
         if not text_only:
             try:
-                img = self._img_cache.get(ckey) if hit is not None else None      # 成绩没变：图也不用重画
+                img = self._img_cache.get(ckey + str(best.show_plat)) if hit is not None else None   # 成绩没变：图也不用重画
                 if img is None:
                     img = await self._image(best)
-                    self._img_cache = {ckey: img}        # 只留最近一张（一张 1～3 MB）
+                    self._img_cache = {ckey + str(best.show_plat): img}        # 只留最近一张（一张 1～3 MB）
                 r = Reply(image=img)
                 if best.calc is not None and best.shown is not None and best.calc != best.shown:
                     r.say("（图上「计算值」是按定数表重算的；跟服务器显示的差一点时以服务器为准）")

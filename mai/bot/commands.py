@@ -520,6 +520,7 @@ class Commands:
             snap = await self._snapshot(uid, region)
         b = snap.best50(self.svc.catalog)
         b.source = self._src_name(uid, region)
+        b.show_dx = self.prefs.show(ctx.uid, "mai_dx") if self.prefs is not None and hasattr(self.prefs, "show") else True
         note = "（NET 暂时连不上，这是上次缓存的成绩）" if getattr(snap, "stale", False) else ""
         if region == "cn":              # 国服是查分器里存的那份：说明来源、上传时间、怎么更新
             note = (note + "\n" if note else "") + CU.b50_note(
@@ -527,7 +528,7 @@ class Commands:
                 getattr(snap.profile, "uploaded_at", ""), getattr(self, "tz", None))
         if not as_text and self.renderer is not None:
             try:
-                memo_key = (region, snap.at, b.source, getattr(snap, "stale", False))
+                memo_key = (region, snap.at, b.source, getattr(snap, "stale", False), b.show_dx)
                 memo = self._img_memo.get(uid)
                 img = memo[1] if memo is not None and memo[0] == memo_key else None
                 if img is None:

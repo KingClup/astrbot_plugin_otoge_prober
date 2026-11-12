@@ -27,7 +27,8 @@ W = 2200
 SIDE = 38
 CARD_W, CARD_H = 412, 228
 GAP_X, GAP_Y = 16, 44
-HEADER_H = 560
+HEADER_H = 452               # 没有背景（frame）时的页头高；有背景时用 HEADER_H_FRAME
+HEADER_H_FRAME = 596
 BANNER_H = 110
 FOOTER_H = 120
 
@@ -288,6 +289,20 @@ def song_of(db: SongDB, s) -> "object | None":
     return song
 
 
+def fill_dx_max(b: Best50, db: SongDB) -> None:
+    """水鱼 / 落雪 / 私服只给 DX 分不给满分：按谱面物量 ×3 补上，这样哪个服的图都能显示「DX 分/满分」和星。"""
+    show = getattr(b, "show_dx", True)
+    for s in b.old + b.new:
+        s._show_dx = show                       # type: ignore[attr-defined]
+        if s.dx_max or not s.dx:
+            continue
+        song = song_of(db, s)
+        ch = song.chart(s.type, s.diff) if song is not None else None
+        total = (ch.notes or {}).get("total") if ch is not None else None
+        if total and s.dx <= total * 3:
+            s.dx_max = int(total) * 3
+
+
 def placeholder_cover(title: str, size: int) -> Image.Image:
     h = int(hashlib.md5(title.encode("utf-8")).hexdigest()[:6], 16)
     hue = (h % 360) / 360
@@ -337,7 +352,7 @@ def flag_badge(assets: AssetStore, kind: str, flag: str | None, d: int = 46) -> 
     im = Image.new("RGBA", (d, d), (0, 0, 0, 0))
     dr = ImageDraw.Draw(im)
     if not flag:
-        dr.ellipse((2, 2, d - 3, d - 3), fill=(255, 255, 255, 70), outline=(255, 255, 255, 150), width=2)
+        dr.ellipse((3, 3, d - 4, d - 4), fill=(238, 232, 246, 255), outline=(214, 204, 230, 255), width=2)
         return im
     col = (FC_COLORS if kind == "fc" else FS_COLORS).get(flag, (200, 200, 200))
     if flag in ("app", "fsdp"):
@@ -358,23 +373,31 @@ def flag_badge(assets: AssetStore, kind: str, flag: str | None, d: int = 46) -> 
 
 
 # ---------------- card ----------------
+# 白色信息面板上的字色：按难度取一个深色（达成率、歌名都用它，在白底上够清楚）
+DIFF_INK = {"basic": (22, 110, 52), "advanced": (166, 104, 0), "expert": (176, 30, 56), "master": (96, 36, 160),
+            "remaster": (122, 82, 190), "utage": (176, 36, 130)}
+
+
 def draw_card(canvas: Image.Image, x: int, y: int, s: Score, no: int, db: SongDB, assets: AssetStore,
               region: str) -> None:
     top, bottom = DIFF_COLORS.get(s.diff, DIFF_COLORS["master"])
     light = s.diff == "remaster"
-    ink = (90, 40, 150) if light else (255, 255, 255)
-    sub_ink = (120, 80, 170) if light else (255, 240, 255)
+    ink = DIFF_INK.get(s.diff, DIFF_INK["master"])
+    soft = (126, 110, 146)
+    left_ink = (96, 56, 160) if light else (255, 255, 255)
     _shadow(canvas, (x, y, x + CARD_W, y + CARD_H), 18)
     # No. tab
     tab = Image.new("RGBA", (100, 34), (0, 0, 0, 0))
-    ImageDraw.Draw(tab).rounded_rectangle((0, 0, 99, 40), 10, fill=bottom)
+    ImageDraw.Draw(tab).rounded_rectangle((0, 0, 99, 40), 10, fill=bottom if not light else (150, 110, 210))
     canvas.alpha_composite(tab, (x + CARD_W - 112, y - 28))
     F.draw_text(ImageDraw.Draw(canvas), (x + CARD_W - 62 - F.text_width(f"No.{no}", "latin", 20) // 2, y - 27),
                 f"No.{no}", "latin", 20, (255, 255, 255))
     body = _gradient(CARD_W, CARD_H, [top, bottom]).convert("RGBA")
     bd = ImageDraw.Draw(body)
-    bd.rounded_rectangle((156, 10, CARD_W - 10, CARD_H - 10), 14,
-                         fill=(255, 255, 255, 120) if light else (255, 255, 255, 46))
+    # 右边的信息面板：白底深色字（原来是半透明面板上压白字，达成率看不清）
+    bd.rounded_rectangle((156, 10, CARD_W - 10, CARD_H - 10), 14, fill=(255, 255, 255, 244))
+    if light:
+        bd.rounded_rectangle((0, 0, CARD_W - 1, CARD_H - 1), 18, outline=(176, 150, 226), width=3)
     _paste_rounded(canvas, body, (x, y), 18)
     d = ImageDraw.Draw(canvas)
     # cover + id/type + version (left column)
@@ -382,7 +405,7 @@ def draw_card(canvas: Image.Image, x: int, y: int, s: Score, no: int, db: SongDB
     cov = assets.cover(song.image if song else None, s.title, 128, s.music_id)
     _paste_rounded(canvas, Image.new("RGBA", (136, 136), (255, 255, 255, 255)), (x + 12, y + 12), 12)
     _paste_rounded(canvas, cov, (x + 16, y + 16), 9)
-    F.draw_text(d, (x + 14, y + 154), str(s.music_id or "-"), "latin", 20, ink)
+    F.draw_text(d, (x + 14, y + 154), str(s.music_id or "-"), "latin", 20, left_ink)
     tic = assets.icon("type_dx" if s.type == "dx" else "type_std") if s.type != "utage" else None
     if tic is not None:
         ti = tic.resize((int(tic.width * 22 / tic.height), 22), Image.LANCZOS)
@@ -405,34 +428,40 @@ def draw_card(canvas: Image.Image, x: int, y: int, s: Score, no: int, db: SongDB
                             fill=(255, 255, 255, 210) if not light else (150, 110, 210))
         F.draw_text(d, (x + 20, y + 191), v, "latin", 17, bottom if not light else (255, 255, 255))
     # text column
-    tx = x + 168
-    tw_max = CARD_W - 168 - 22
-    F.draw_text(d, (tx, y + 16), F.fit(s.title, "bold", 26, tw_max), "bold", 26, ink)
-    d.line((tx, y + 54, x + CARD_W - 22, y + 54), fill=ink, width=2)
+    tx = x + 170
+    right = x + CARD_W - 24
+    tw_max = right - tx
+    F.draw_text(d, (tx, y + 17), F.fit(s.title, "bold", 25, tw_max), "bold", 25, (52, 40, 70))
     ach = fmt_ach(s.ach)
-    size = 42
+    size = 44
     while size > 28 and F.text_width(ach, "latin", size) > tw_max:
         size -= 2
-    F.draw_text(d, (tx, y + 58 + (42 - size) // 2), ach, "latin", size, ink,
-                stroke=1, stroke_fill=bottom if not light else ink)
+    F.draw_text(d, (tx, y + 52 + (44 - size) // 2), ach, "latin", size, ink)
+    # 定数（难度色小牌）→ 单曲 rating（靠右、大一号）
     ds_txt = (f"{s.ds:.1f}" if s.ds is not None else "?") + ("" if s.ds_exact else "≈")
-    F.draw_text(d, (tx, y + 108), f"{ds_txt} → {s.rating}", "latin", 25, sub_ink)
-    stars = dx_stars(s.dx, s.dx_max)
-    if s.dx_max:
-        F.draw_text(d, (tx, y + 141), f"DX {s.dx}/{s.dx_max}", "latin", 17, sub_ink)
+    cw = F.text_width(ds_txt, "latin", 22) + 20
+    d.rounded_rectangle((tx, y + 110, tx + cw, y + 140), 15, fill=bottom if not light else (150, 110, 210))
+    F.draw_text(d, (tx + 10, y + 111), ds_txt, "latin", 22, (255, 255, 255))
+    F.draw_text(d, (right, y + 103), str(s.rating), "latin", 34, ink, anchor_right=True)
+    rw = F.text_width(str(s.rating), "latin", 34)
+    F.draw_text(d, (right - rw - 8, y + 116), "Ra", "latin", 17, soft, anchor_right=True)
+    show_dx = getattr(s, "_show_dx", True)
+    stars = dx_stars(s.dx, s.dx_max) if show_dx else 0
+    d.line((tx, y + 149, right, y + 149), fill=(232, 224, 242), width=2)
+    if s.dx_max and show_dx:
+        F.draw_text(d, (tx, y + 153), f"DX {s.dx}/{s.dx_max}", "latin", 16, soft)
     sic = assets.icon("dxstar_3" if stars >= 5 else "dxstar_2" if stars >= 3 else "dxstar_1") if stars else None
     if stars and sic is not None:
         si = sic.resize((18, 18), Image.LANCZOS)
         for k in range(stars):
-            canvas.alpha_composite(si, (x + CARD_W - 22 - (k + 1) * 16, y + 142))
+            canvas.alpha_composite(si, (right - (k + 1) * 16 - 2, y + 153))
     elif stars:
-        star_col = (255, 236, 120) if stars >= 5 else ((255, 200, 120) if stars >= 3 else (180, 255, 190))
-        F.draw_text(d, (x + CARD_W - 20, y + 140), "✦" * stars, "symbol", 16, star_col, anchor_right=True,
-                    stroke=1, stroke_fill=bottom)
-    by = y + 170
-    canvas.alpha_composite(rank_badge(assets, s.rank, 100, 44), (tx - 4, by))
-    canvas.alpha_composite(flag_badge(assets, "fc", s.fc, 44), (tx + 104, by))
-    canvas.alpha_composite(flag_badge(assets, "fs", s.fs, 44), (tx + 154, by))
+        star_col = (232, 170, 20) if stars >= 5 else ((240, 140, 40) if stars >= 3 else (60, 170, 90))
+        F.draw_text(d, (right, y + 151), "✦" * stars, "symbol", 16, star_col, anchor_right=True)
+    by = y + 174
+    canvas.alpha_composite(rank_badge(assets, s.rank, 96, 42), (tx - 4, by))
+    canvas.alpha_composite(flag_badge(assets, "fc", s.fc, 42), (tx + 102, by))
+    canvas.alpha_composite(flag_badge(assets, "fs", s.fs, 42), (tx + 150, by))
 
 
 # ---------------- page ----------------
@@ -465,6 +494,18 @@ def _background(assets: AssetStore, version: str, w: int, h: int, fallbacks: tup
     return Image.alpha_composite(bg, deco)
 
 
+def _frame_background(frame: Image.Image, w: int, h: int) -> Image.Image:
+    """有背景（frame）时，整张图的底色跟着它走：放大、糊开、罩一层白，再压几条斜纹。"""
+    small = frame.convert("RGB").resize((64, max(8, int(64 * h / w))), Image.LANCZOS)
+    bg = small.resize((w, h), Image.BICUBIC).filter(ImageFilter.GaussianBlur(40)).convert("RGBA")
+    bg = Image.alpha_composite(bg, Image.new("RGBA", (w, h), (255, 255, 255, 138)))
+    deco = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    dd = ImageDraw.Draw(deco)
+    for i in range(0, w + h, 90):
+        dd.line((i, 0, i - h, h), fill=(255, 255, 255, 30), width=26)
+    return Image.alpha_composite(bg, deco)
+
+
 def _logo(assets: AssetStore, version: str) -> Image.Image | None:
     p = os.path.join(assets.themes, version or "default", "logo.png")
     if os.path.exists(p):
@@ -486,104 +527,170 @@ def _logo(assets: AssetStore, version: str) -> Image.Image | None:
     return im
 
 
-def _header(canvas: Image.Image, b: Best50, profile: Profile | None, db: SongDB, assets: AssetStore,
-            at: int | None) -> None:
+PLATE_W, PLATE_H = 1080, 174          # 姓名框原图 720×116，放大 1.5 倍
+
+
+def _net_or_icon(assets: AssetStore, ref: str) -> Image.Image | None:
+    """段位 / 阶级小图：NET 给的是图片地址；落雪给的是编号，写成 icon:class_NN 用本地图。"""
+    if not ref:
+        return None
+    if ref.startswith("icon:"):
+        return assets.icon(ref[5:])
+    return assets.net_image(ref)
+
+
+def _player_block(canvas: Image.Image, x: int, y: int, b: Best50, profile: Profile | None, assets: AssetStore) -> None:
+    """游戏上屏左上角那一块：姓名框（没有就画白底）里放头像、rating 牌、段位 / 阶级、名字；下面一条称号。"""
     d = ImageDraw.Draw(canvas)
-    version = b.version or db.current_version.get(catalog_region(b.region), "")
-    # left panel
-    box = (SIDE, 30, 1390, 330)
-    _shadow(canvas, box, 26)
-    panel = Image.new("RGBA", (box[2] - box[0], box[3] - box[1]), (255, 255, 255, 200))
-    _paste_rounded(canvas, panel, box[:2], 26)
-    av = assets.avatar(profile.icon_url, 236) if profile and profile.icon_url else None
-    if av is None:
-        av = placeholder_cover(profile.name if profile else "?", 236).convert("RGBA")
-    _paste_rounded(canvas, Image.new("RGBA", (248, 248), (255, 255, 255, 255)), (SIDE + 26, 56), 22)
-    _paste_rounded(canvas, av, (SIDE + 32, 62), 18)
-    nx = SIDE + 300
-    rating = profile.rating if profile and profile.rating else b.total
-    plate = assets.icon(f"rating_{_rating_tier(rating):02d}")
+    plate = assets.net_image(profile.plate_url) if profile and profile.plate_url else None
+    _shadow(canvas, (x, y, x + PLATE_W, y + PLATE_H), 18, blur=12, alpha=80)
     if plate is not None:
-        draw_rating_plate(canvas, plate, rating, nx, 40, 102)
+        _paste_rounded(canvas, plate.resize((PLATE_W, PLATE_H), Image.LANCZOS), (x, y), 16)
+    else:
+        _paste_rounded(canvas, Image.new("RGBA", (PLATE_W, PLATE_H), (255, 255, 255, 226)), (x, y), 16)
+    av = assets.avatar(profile.icon_url, 150) if profile and profile.icon_url else None
+    if av is None:
+        av = placeholder_cover(profile.name if profile else "?", 150).convert("RGBA")
+    _paste_rounded(canvas, Image.new("RGBA", (158, 158), (255, 255, 255, 255)), (x + 8, y + 8), 16)
+    _paste_rounded(canvas, av, (x + 12, y + 12), 13)
+    nx = x + 178
+    rating = profile.rating if profile and profile.rating else b.total
+    rp = assets.icon(f"rating_{_rating_tier(rating):02d}")
+    if rp is not None:
+        draw_rating_plate(canvas, rp, rating, nx, y + 8, 76)
+        bx = nx + int(rp.width * 76 / rp.height) + 14
     else:
         col = _tier_color(rating)
-        rb = _rainbow(470, 78) if col is None else _gradient(470, 78, [tuple(min(255, c + 40) for c in col), col], True)
-        _paste_rounded(canvas, rb.convert("RGBA"), (nx, 52), 16)
-        F.draw_text(d, (nx + 20, 60), "DX RATING", "latin", 20, (255, 255, 255), stroke=2, stroke_fill=(80, 40, 120))
-        F.draw_text(d, (nx + 450, 58), f"{rating:,}".replace(",", ""), "latin", 58, (255, 255, 255),
+        rb = _rainbow(360, 64) if col is None else _gradient(360, 64, [tuple(min(255, c + 40) for c in col), col], True)
+        _paste_rounded(canvas, rb.convert("RGBA"), (nx, y + 14), 14)
+        F.draw_text(d, (nx + 16, y + 20), "DX RATING", "latin", 18, (255, 255, 255), stroke=2, stroke_fill=(80, 40, 120))
+        F.draw_text(d, (nx + 344, y + 16), str(rating), "latin", 48, (255, 255, 255),
                     anchor_right=True, stroke=3, stroke_fill=(80, 40, 120))
-    # 段位 (course) and class badges from NET, beside the rating plate
-    bx, right = nx + (int(plate.width * 102 / plate.height) + 18 if plate is not None else 490), box[2] - 26
-    for url in ((profile.course_rank, profile.class_rank) if profile else ()):
-        im = assets.net_image(url) if url else None
+        bx = nx + 374
+    # 段位 (course) and class badges beside the rating plate
+    right = x + PLATE_W - 14
+    for ref in ((profile.course_rank, profile.class_rank) if profile else ()):
+        im = _net_or_icon(assets, ref)
         if im is None or not im.getbbox():
             continue
         im = im.crop(im.getbbox())
-        h = 92
+        h = 68
         w = max(1, int(im.width * h / im.height))
-        if w > 260:
-            w, h = 260, max(1, int(im.height * 260 / im.width))
+        if w > 220:
+            w, h = 220, max(1, int(im.height * 220 / im.width))
         if bx + w > right:
             break
-        canvas.alpha_composite(im.resize((w, h), Image.LANCZOS), (bx, 40 + (102 - h) // 2))
-        bx += w + 14
+        canvas.alpha_composite(im.resize((w, h), Image.LANCZOS), (bx, y + 12 + (68 - h) // 2))
+        bx += w + 12
     name = profile.name if profile else "-"
-    d.rounded_rectangle((nx, 146, nx + 700, 228), 16, fill=(255, 255, 255), outline=(200, 170, 230), width=3)
-    F.draw_text(d, (nx + 22, 156), F.fit(name, "bold", 52, 660), "bold", 52, (40, 30, 60))
+    d.rounded_rectangle((nx, y + 92, nx + 560, y + 164), 14, fill=(255, 255, 255), outline=(206, 190, 226), width=3)
+    F.draw_text(d, (nx + 20, y + 100), F.fit(name, "bold", 46, 520), "bold", 46, (40, 30, 60))
+    # 称号
     kind = profile.title_kind if profile else "normal"
     tstops = {"rainbow": None, "gold": [(255, 226, 120), (232, 170, 40)], "silver": [(235, 240, 248), (170, 182, 200)],
               "bronze": [(232, 180, 130), (180, 110, 60)]}.get(kind, [(250, 250, 250), (210, 210, 220)])
-    tb = _rainbow(700, 52) if tstops is None else _gradient(700, 52, tstops, True)
-    _paste_rounded(canvas, tb.convert("RGBA"), (nx, 242), 12)
+    ty = y + PLATE_H + 12
+    tb = _rainbow(740, 50) if tstops is None else _gradient(740, 50, tstops, True)
+    _shadow(canvas, (nx, ty, nx + 740, ty + 50), 12, offset=4, blur=6, alpha=60)
+    _paste_rounded(canvas, tb.convert("RGBA"), (nx, ty), 12)
+    ImageDraw.Draw(canvas).rounded_rectangle((nx, ty, nx + 739, ty + 49), 12, outline=(255, 255, 255), width=2)
     title = profile.title if profile and profile.title else ""
     if title:
-        tw = F.text_width(F.fit(title, "bold", 28, 660), "bold", 28)
-        F.draw_text(d, (nx + 350 - tw // 2, 248), F.fit(title, "bold", 28, 660), "bold", 28, (60, 40, 70))
-    # right: date / region / logo
-    rx = W - SIDE
-    stamp = time.strftime("%Y/%m/%d %H:%M", time.localtime(at or time.time()))
-    F.draw_text(d, (rx, 34), stamp, "latin", 44, (255, 255, 255), anchor_right=True, stroke=4, stroke_fill=(140, 70, 170))
-    src = b.source or ("maimai DX NET" if b.region not in API_REGIONS else "")
-    reg = f"{REGION_NAMES.get(b.region, b.region)} · {version}" + (f" · {src}" if src else "")
-    if getattr(b, "rom", "") and (rv := rom_short(b.rom)):
-        reg += f" · Ver.{rv}"          # 私服：玩家客户端版本号，定数 / 新旧曲按它算
-    F.draw_text(d, (rx, 96), reg, "bold", 32, (255, 255, 255), anchor_right=True, stroke=3, stroke_fill=(140, 70, 170))
-    logo = _logo(assets, version)
-    if logo is not None:
-        canvas.alpha_composite(logo, (rx - logo.width, 146))
-    else:
-        txt = f"maimai DX {_version_short(version)}"
-        F.draw_text(d, (rx, 170), txt, "latin", 76, (255, 255, 255), anchor_right=True, stroke=6,
-                    stroke_fill=(190, 70, 170))
-    # stats strip
-    sbox = (SIDE, 360, W - SIDE, 520)
-    _shadow(canvas, sbox, 24)
-    strip = Image.new("RGBA", (sbox[2] - sbox[0], sbox[3] - sbox[1]), (255, 255, 255, 190))
-    _paste_rounded(canvas, strip, sbox[:2], 24)
+        t = F.fit(title, "bold", 27, 700)
+        F.draw_text(ImageDraw.Draw(canvas), (nx + 370 - F.text_width(t, "bold", 27) // 2, ty + 6), t, "bold", 27,
+                    (60, 40, 70))
+
+
+def _stats(canvas: Image.Image, box, cells, cols: int) -> None:
+    """统计格子：cols 列排开，每格一张白卡（小标签 / 大数字 / 一行说明）。"""
+    x0, y0, x1, y1 = box
+    rows = (len(cells) + cols - 1) // cols
+    gap = 14
+    cw = (x1 - x0 - gap * (cols - 1)) // cols
+    ch = (y1 - y0 - gap * (rows - 1)) // rows
+    for i, (k, v, sub, accent) in enumerate(cells):
+        r, c = divmod(i, cols)
+        cx, cy = x0 + c * (cw + gap), y0 + r * (ch + gap)
+        _shadow(canvas, (cx, cy, cx + cw, cy + ch), 20, offset=4, blur=8, alpha=60)
+        _paste_rounded(canvas, Image.new("RGBA", (cw, ch), (255, 255, 255, 228)), (cx, cy), 20)
+        d = ImageDraw.Draw(canvas)
+        d.rounded_rectangle((cx + 18, cy + 20, cx + 26, cy + ch - 20), 4, fill=accent)
+        F.draw_text(d, (cx + 42, cy + 12), F.fit(k, "bold", 22, cw - 60), "bold", 22, (140, 100, 176))
+        size = 50
+        while size > 30 and F.text_width(v, "latin", size) > cw - 60:
+            size -= 2
+        F.draw_text(d, (cx + 42, cy + 40 + (50 - size) // 2), v, "latin", size, (64, 38, 104))
+        if sub:
+            F.draw_text(d, (cx + 42, cy + ch - 34), F.fit(sub, "bold", 20, cw - 60), "bold", 20, (126, 104, 150))
+
+
+def _frame_image(assets: AssetStore, profile: Profile | None) -> Image.Image | None:
+    return assets.net_image(profile.frame_url) if profile and profile.frame_url else None
+
+
+def _header(canvas: Image.Image, b: Best50, profile: Profile | None, db: SongDB, assets: AssetStore,
+            at: int | None, frame: Image.Image | None = None) -> None:
+    """有背景（frame，目前国服落雪才有）：左边一整张背景图，上面压姓名框那一块，右边 logo + 四格统计。
+    没有背景：姓名框那一块 + 右边 logo，下面一横排统计。"""
+    version = b.version or db.current_version.get(catalog_region(b.region), "")
     cells = []
     net = profile.rating if profile else 0
-    cells.append(("RATING", str(net or "-"), f"计算值 {b.total}" + (f"（{b.total - net:+d}）" if net and b.total != net else " ✓")))
+    cells.append(("RATING", str(net or b.total), f"计算值 {b.total}" + (f"（{b.total - net:+d}）" if net and b.total != net else " ✓"),
+                  (240, 120, 170)))
     avg_old = b.old_total / len(b.old) if b.old else 0
     avg_new = b.new_total / len(b.new) if b.new else 0
-    cells.append(("BEST 35 · 旧曲", str(b.old_total), f"平均 {avg_old:.1f} · 底分 {b.old_floor}"))
+    cells.append(("BEST 35 · 旧曲", str(b.old_total), f"平均 {avg_old:.1f} · 底分 {b.old_floor}", (128, 110, 236)))
     news = "/".join(_version_short(v) for v in sorted(db.new_versions(b.region), key=db.version_index))
     cells.append((f"BEST 15 · {news}" if news else "BEST 15 · 新曲", str(b.new_total),
-                  f"平均 {avg_new:.1f} · 底分 {b.new_floor}"))
+                  f"平均 {avg_new:.1f} · 底分 {b.new_floor}", (240, 160, 60)))
     pc = "-"
     if profile and profile.play_count_version is not None:
         pc = f"{profile.play_count_version} / {profile.play_count_total}"
     elif profile and profile.play_count_total is not None:          # 私服只给累计
         pc = f"- / {profile.play_count_total}"
     stars = f"★ {profile.stars}" if profile and profile.stars is not None else ""
-    cells.append(("本版本 / 累计游玩", pc, stars))
-    cw = (sbox[2] - sbox[0]) // len(cells)
-    for i, (k, v, sub) in enumerate(cells):
-        cx = sbox[0] + i * cw + 34
-        F.draw_text(d, (cx, 378), k, "bold", 24, (150, 90, 190))
-        F.draw_text(d, (cx, 408), v, "latin", 54, (70, 40, 110))
-        F.draw_text(d, (cx, 476), sub, "bold", 24, (120, 90, 150))
-        if i:
-            d.line((sbox[0] + i * cw, 384, sbox[0] + i * cw, 500), fill=(210, 180, 235), width=3)
+    if pc == "-" and stars:                                         # 国服（落雪）没有游玩次数，只有觉醒数
+        cells.append(("搭档觉醒", stars, "", (90, 190, 150)))
+    else:
+        cells.append(("本版本 / 累计游玩", pc, stars, (90, 190, 150)))
+
+    if frame is not None:
+        fw, fh = 1240, HEADER_H_FRAME - 30 - 47            # 1240×519，和原图 1080×452 同比例
+        fx, fy = SIDE, 30
+        _shadow(canvas, (fx, fy, fx + fw, fy + fh), 28, blur=14, alpha=100)
+        _paste_rounded(canvas, frame.convert("RGB").resize((fw, fh), Image.LANCZOS), (fx, fy), 28)
+        ImageDraw.Draw(canvas).rounded_rectangle((fx, fy, fx + fw - 1, fy + fh - 1), 28, outline=(255, 255, 255), width=4)
+        _player_block(canvas, fx + 24, fy + 24, b, profile, assets)
+        rx0, bottom = fx + fw + 24, fy + fh
+    else:
+        _player_block(canvas, SIDE, 36, b, profile, assets)
+        rx0, bottom = SIDE + PLATE_W + 24, 36 + PLATE_H + 62
+    # 右边：logo + 时间 / 服务器
+    d = ImageDraw.Draw(canvas)
+    rx = W - SIDE
+    logo = _logo(assets, version)
+    ly = 24
+    if logo is not None:
+        lg = logo.copy()
+        lg.thumbnail((rx - rx0, 196), Image.LANCZOS)
+        canvas.alpha_composite(lg, (rx - lg.width, ly + (196 - lg.height) // 2))
+    else:
+        F.draw_text(d, (rx, ly + 50), f"maimai DX {_version_short(version)}", "latin", 70, (255, 255, 255), anchor_right=True,
+                    stroke=6, stroke_fill=(190, 70, 170))
+    stamp = time.strftime("%Y/%m/%d %H:%M", time.localtime(at or time.time()))
+    src = b.source or ("maimai DX NET" if b.region not in API_REGIONS else "")
+    reg = f"{REGION_NAMES.get(b.region, b.region)} · {version}" + (f" · {src}" if src else "")
+    if getattr(b, "rom", "") and (rv := rom_short(b.rom)):
+        reg += f" · Ver.{rv}"          # 私服：玩家客户端版本号，定数 / 新旧曲按它算
+    reg = F.fit(reg + f" · {stamp}", "bold", 28, rx - rx0 - 44)
+    pw = F.text_width(reg, "bold", 28) + 44
+    my = ly + 204
+    _paste_rounded(canvas, Image.new("RGBA", (pw, 46), (255, 255, 255, 214)), (rx - pw, my), 23)
+    F.draw_text(ImageDraw.Draw(canvas), (rx - pw + 22, my + 4), reg, "bold", 28, (112, 70, 160))
+    if frame is not None:
+        _stats(canvas, (rx0, my + 46 + 18, rx, bottom), cells, 2)
+    else:
+        _stats(canvas, (SIDE, bottom + 18, W - SIDE, HEADER_H - 30), cells, 4)
 
 
 def _banner(canvas: Image.Image, y: int, label: str, total: int, sub: str) -> None:
@@ -616,6 +723,7 @@ class B50Renderer:
 
     def __call__(self, b: Best50, profile: Profile | None, db: SongDB, at: int | None = None) -> bytes:
         share_versions(db)
+        fill_dx_max(b, db)
         images = []
         for s in b.old + b.new:
             song = song_of(db, s)       # 新歌 DXRating 还没有游戏内 ID：按 song_id / 歌名找曲绘，别只认 music_id
@@ -626,11 +734,14 @@ class B50Renderer:
         self.assets.prefetch(images)
         rows_old = max(1, (len(b.old) + 4) // 5)
         rows_new = max(1, (len(b.new) + 4) // 5)
-        h = HEADER_H + 2 * (BANNER_H + 56) + (rows_old + rows_new) * (CARD_H + GAP_Y) + FOOTER_H
+        frame = _frame_image(self.assets, profile)
+        head = HEADER_H_FRAME if frame is not None else HEADER_H
+        h = head + 2 * (BANNER_H + 56) + (rows_old + rows_new) * (CARD_H + GAP_Y) + FOOTER_H
         version = b.version or db.current_version.get(catalog_region(b.region), "")
-        canvas = _background(self.assets, version, W, h, _fallbacks(db, b.region))
-        _header(canvas, b, profile, db, self.assets, at)
-        y = HEADER_H
+        canvas = (_frame_background(frame, W, h) if frame is not None
+                  else _background(self.assets, version, W, h, _fallbacks(db, b.region)))
+        _header(canvas, b, profile, db, self.assets, at, frame)
+        y = head
         _banner(canvas, y, "BEST 35", b.old_total, f"旧曲 · {len(b.old)} 张")
         y = _grid(canvas, y + BANNER_H + 56, b.old, db, self.assets, b.region)
         news = " / ".join(sorted(db.new_versions(b.region), key=db.version_index))

@@ -72,7 +72,7 @@ def test_help_overview_is_one_screen_and_topics_split():
     assert w0 == 1600 and h0 < 1800 and h1 > h0           # 总览一屏，版本行只是多一点
     for key in H.TOPIC_ORDER:
         w, h = _png_size(H.render_topic(key, "Bot"))
-        assert w == 1600 and h < 2400, key
+        assert w == 1600 and h < 2480, key        # v2.4.0：页头加了看板娘，高了 66
     assert _png_size(H.render_full("Bot"))[1] > 6000
     # 文字版：总览 / 主题 / 全部
     ov = H.help_text()
@@ -82,7 +82,7 @@ def test_help_overview_is_one_screen_and_topics_split():
     assert "版本号" in full and "Ver.x.xx" in full and "MuNET" in full and "开字母" in full
     assert H.topic_key("舞萌") == "mai" and H.topic_key("sdvx") == "sdvx" and H.topic_key("烧烤") == "pjsk"
     assert H.topic_key("谱面") == "chart" and H.topic_key("全") == "all"
-    assert "sdvx.in" in H.TOPICS["chart"].intro and "没有查分" in H.TOPICS["sdvx"].intro
+    assert "sdvx.in" in H.TOPICS["chart"].intro and "手动传" in H.TOPICS["sdvx"].intro and "没有查分" in H.TOPICS["pjsk"].intro
     assert H.topic_key("xx") is None
 
 
@@ -95,7 +95,7 @@ def test_help_wrap_keeps_words():
 # ---------------------------------------------------------------- 绑定说明图
 def test_bind_guide_lists_private_servers():
     names = [s[0] for s in bindguide.SERVERS]
-    assert names == ["国际服", "日服", "国服", "私服"]
+    assert names == ["国际服", "日服", "国服", "私服", "手动传分"]
     priv = dict(bindguide.SERVERS[3][2])
     assert set(priv) == {"AquaDX", "RinNET", "MuNET"} and "暂时用不了" in priv["MuNET"]
     assert "私服" in bindguide.STEPS[1][2]

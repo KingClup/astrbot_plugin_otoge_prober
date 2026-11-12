@@ -151,6 +151,20 @@ def route(raw: str, *, last_game: str = "") -> Route | None:
     # 3a. /网页绑定 → 群友自助绑定链接
     if low in ("网页绑定", "绑定网页", "网页登录"):
         return Route("core", "网页绑定", "bare")
+    for w in ("网页绑定", "绑定网页"):                    # /网页绑定 确认 1234（群里要的链接，本人回确认码）
+        tail = body[len(w):].strip() if low.startswith(w) else ""
+        if tail and tail.split()[0].lower().startswith(("确认", "confirm")):
+            code = "".join(ch for ch in tail if ch.isdigit())
+            return Route("core", "网页绑定 确认" + (" " + code if code else ""), "bare")
+    # 3a'. /传分 → 传分网站（SDVX / 音击手动传分）；/传、/批量传 → 聊天传分（游戏可写可不写）。旧的「录分」也认
+    for w in ("传分网站", "网页传分", "录分网站", "网页录分", "成绩本", "传分", "录分"):
+        if low.startswith(w):
+            tail = body[len(w):].strip()
+            return Route("core", "传分" + (" " + tail if tail else ""), "bare")
+    for w, sub in (("批量传分", "批量传"), ("批量传", "批量传"), ("批量录分", "批量传"), ("批量录", "批量传"), ("传", "传")):
+        if low.startswith(w) and (len(low) == len(w) or body[len(w)].isspace()):
+            tail = body[len(w):].lstrip(" \t")
+            return Route("core", sub + ("\n" if tail.startswith(("\n", "\r")) else " ") + tail.lstrip(), "bare")
     # 3b. /理论ra、/查理论ra、/理论值 → 三个服的理论最高 Rating 总览
     if low in ("理论", "理论ra", "理论rating", "理论值", "理论最高", "查理论", "查理论ra", "理论分", "最高ra"):
         return Route("core", "理论", "bare")

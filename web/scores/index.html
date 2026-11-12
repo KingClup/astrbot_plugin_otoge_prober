@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#101317" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101317" media="(prefers-color-scheme: dark)">
+<title>{{BOT}} · 传分</title>
+<link rel="stylesheet" href="/scores/app.css?v=2405">
+</head>
+<body data-game="sdvx">
+<div class="gate" id="gate">
+  <div class="gate-in">
+    <div class="gbar">{{BOT}} 音游查分</div>
+    <div class="grule" aria-hidden="true"><i></i><i></i></div>
+    <div class="gstage">
+      <div class="garch" aria-hidden="true"></div>
+      <img class="ggirl" src="/img/yume-wave.webp" alt="" width="640" height="788" decoding="async">
+      <p class="ghello" aria-hidden="true">来传<br>分吧</p>
+      <p class="gsub" id="gateWho">正在看你登录了没有…</p>
+    </div>
+    <p class="gpick">今天传哪个游戏？</p>
+    <div class="doors">
+      <button type="button" class="door door-sdvx" data-game="sdvx" disabled>
+        <span class="dn">SDVX</span><span class="ds">SOUND VOLTEX</span><span class="dv" id="doorSdvx">&nbsp;</span>
+      </button>
+      <button type="button" class="door door-geki" data-game="geki" disabled>
+        <span class="dn">音击</span><span class="ds">オンゲキ</span><span class="dv" id="doorGeki">&nbsp;</span>
+      </button>
+    </div>
+    <p class="gnote" id="gateNote">&nbsp;</p>
+  </div>
+</div>
+<header class="bar">
+  <div class="bar-in top">
+    <div class="brand"><span class="dot"></span><span>{{BOT}} · 传分</span></div>
+    <div class="games" id="games" role="tablist" aria-label="游戏">
+      <button type="button" data-game="sdvx" class="on" role="tab">SDVX</button>
+      <button type="button" data-game="geki" role="tab">音击</button>
+    </div>
+  </div>
+  <div class="bar-in herobox"><div class="hero" id="sum"></div><img class="hero-girl" id="heroGirl" src="/img/yume-pass.webp" alt="" width="520" height="385" decoding="async"></div>
+  <nav class="bar-in views" role="tablist" aria-label="页面">
+    <button type="button" data-view="find" class="on" role="tab">找歌传分</button>
+    <button type="button" data-view="batch" role="tab">批量传分</button>
+    <button type="button" data-view="mine" role="tab">我的成绩</button>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="notice" id="guest" hidden>
+    现在是只读模式：能逛曲库、试批量格式，传分要先登录。在 QQ 里发 <code>/传分</code>，点它回你的链接就登录了（30 天内不用再点）；别的设备登录过、这台还没有的话，发 <code>/传分 登录</code>。
+  </section>
+
+  <section id="find">
+    <div class="search" id="searchBar">
+      <div class="search-box">
+        <input id="q" type="text" placeholder="歌名 / 外号 / 读音" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="搜歌">
+        <button type="button" id="qx" class="x" hidden aria-label="清空">×</button>
+      </div>
+      <button type="button" id="fToggle" class="ghost ftog" aria-expanded="false">筛选</button>
+    </div>
+    <div class="filters" id="filters" hidden>
+      <label>等级<select id="fLevel"></select></label>
+      <label>难度<select id="fDiff"></select></label>
+      <label>版本<select id="fVer"></select></label>
+      <label id="fGenreBox">分类<select id="fGenre"></select></label>
+      <label>只看<select id="fState"></select></label>
+      <label>排序<select id="fSort"></select></label>
+      <button type="button" id="fReset" class="link">清除筛选</button>
+    </div>
+    <div class="tipbar" id="batchTip" hidden>
+      <span>一首首点太慢？可以<b>批量传分</b>：一次贴很多行，或者把截图交给别的 AI 帮你写好格式。</span>
+      <span class="tip-act"><button type="button" class="ghost sm" id="batchTipGo">去批量传</button><button type="button" class="x" id="batchTipX" aria-label="不再提示">×</button></span>
+    </div>
+    <div class="countrow">
+      <p class="hint" id="count"></p>
+      <label class="ctog" id="constBox" hidden><input type="checkbox" id="constTog"><span>详细定数</span><small>12 以上</small></label>
+      <label class="ctog" id="extraBox"><input type="checkbox" id="extraTog"><span id="extraName">EX SCORE</span></label>
+    </div>
+    <ol class="songs" id="list"></ol>
+    <button type="button" id="more" class="ghost wide" hidden>再显示一些</button>
+  </section>
+
+  <section id="batch" hidden>
+    <div class="panel">
+      <h2>批量传分</h2>
+      <p class="old">一行一首，栏之间用 <code>|</code> 隔开（也认制表符、聊天那种空格写法）。分数只升不降，和单首传一样。</p>
+      <pre class="fmt" id="bFmt"></pre>
+      <div class="ways">
+        <div class="way">
+          <b>截图让别的 AI 认</b>
+          <span>把截图（结果画面、选曲画面、VF 50 页面都行）和这段提示词一起发给 ChatGPT / Claude / Gemini / Grok / DeepSeek 之类的，它回的整段复制回来贴到下面。</span>
+          <button type="button" class="ghost sm" id="bCopy">复制给 AI 的提示词</button>
+        </div>
+        <div class="way">
+          <b>QQ 里也能批量</b>
+          <span id="bChat"></span>
+        </div>
+        <div class="way" id="bCsvWay">
+          <b>官网 CSV（开了 e-amusement 会员的话）</b>
+          <span>SDVX 官网「プレーデータ」能导出全部成绩的 CSV（要ベーシックコース）。下载下来直接选这个文件，几千首一次传完；开一个月会员导一次就够，之后手动补。</span>
+          <label class="ghost sm filebtn">选 CSV 文件<input type="file" id="bCsv" accept=".csv,text/csv" hidden></label>
+        </div>
+      </div>
+      <textarea id="bText" class="btext" rows="9" spellcheck="false" autocapitalize="off" placeholder=""></textarea>
+      <div class="row tight">
+        <button type="button" class="primary" id="bParse">识别</button>
+        <button type="button" class="ghost" id="bSample">填个例子</button>
+        <button type="button" class="ghost" id="bClear">清空</button>
+      </div>
+    </div>
+    <div id="bOut"></div>
+  </section>
+
+  <section id="mine" hidden>
+    <div id="mineBody"></div>
+  </section>
+</main>
+
+<div class="sheet-bg" id="sheetBg" hidden></div>
+<section class="sheet" id="sheet" hidden aria-modal="true" role="dialog">
+  <div class="sheet-in" id="sheetIn"></div>
+</section>
+<div class="toast" id="toast" hidden role="status"></div>
+
+<script src="/scores/app.js?v=2405"></script>
+</body>
+</html>
