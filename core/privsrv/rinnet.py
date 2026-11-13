@@ -13,6 +13,14 @@ RinNET 没有公开主页，要用玩家自己的登录（2026-11-07 读网页�
   GET  /api/game/maimai2/profile?aimeId=…                             （舞萌：只按前端代码写，还没用真号核对）
   GET  /api/game/maimai2/rating | new_rating?aimeId=…                 → {data:"musicId:level:romVersion:achievement,…"}
   GET  /api/game/maimai2/recent?aimeId=…&page=0
+  音击（2026-11-13 读网页前端代码，没有用真号核对）：
+  GET  /api/game/ongeki/profile?aimeId=…        → {userName, playerRating(旧规则 ×100), newPlayerRating(Re:Fresh ×1000),
+                                                    lastRomVersion "1.50.00", battlePoint, …}
+  GET  /api/game/ongeki/newRating?aimeId=…      → {status:{code}, data:{new10:[…], old50:[…], pScore:[…]}}；
+                                                    92001 = 有；94001 = 客户端还是 Re:Fresh 以前（旧规则）
+                                                    每条 {musicId, level(0-3 / 10 = LUNATIC), techScoreMax, isFullCombo,
+                                                    isAllBreak, isFullBell, platinumScoreStar, platinumScoreMax}
+  GET  /api/game/ongeki/data/musicList          → [{id, name, artistName, genre, level0…level4: "14,70"}]（要登录）
 accessToken 只活 5 分钟；refreshToken 一直能用到玩家退出登录 / 改密码。机器人只存 refreshToken（加密），不存密码。
 
 两层：parse_* 纯函数（测试只测这层）；RinClient 管登录、续期、发请求。
@@ -149,6 +157,72 @@ def _rom_tuple(rom: str) -> tuple[int, ...]:
     return tuple(int(x) for x in re.findall(r"\d+", rom or "")[:3]) or (0,)
 
 
+# ---------------------------------------------------------------- 音击
+
+def geki_level(s: Any) -> float | None:
+    """RinNET 曲目表的等级串 "14,70" → 14.7（和网站前端同一个算法：整数 ×100 + 逗号后面）。"0,0" / 空 → None。"""
+    bits = str(s or "").split(",")
+    if len(bits) != 2:
+        return None
+    try:
+        v = int(bits[0]) * 100 + int(bits[1])
+    except ValueError:
+        return None
+    return v / 100 if v > 0 else None
+
+
+def geki_music_to_aqua(rows: Any) -> dict:
+    """RinNET 的音击曲目表 → AquaDX all-music.json 的样子（ongeki.aquadx.ChartResolver 直接能用）。"""
+    if isinstance(rows, dict):
+        rows = rows.get("data") if isinstance(rows.get("data"), list) else rows.get("content")
+    out: dict[str, dict] = {}
+    for m in rows or []:
+        if not isinstance(m, dict) or m.get("id") is None:
+            continue
+        lv = [geki_level(m.get(f"level{i}")) for i in range(5)]
+        lunatic = not any(lv[:4]) and lv[4] is not None
+        notes = [{"lv": lv[4]}] if lunatic else [{"lv": x} for x in lv[:4]]
+        out[str(int(m["id"]))] = {"name": str(m.get("name") or ""), "composer": str(m.get("artistName") or ""),
+                                  "lunatic": lunatic, "notes": notes}
+    return out
+
+
+GEKI_FRAMES = (("new10", "new10"), ("old50", "best50"), ("pScore", "pscore50"))
+
+
+def parse_geki_rating(prof: Any, js: Any) -> tuple[dict, list[dict]]:
+    """profile + newRating → (AquaDX user-summary 的样子, 灯列表)，交给 ongeki.aquadx.build_best。"""
+    if not isinstance(prof, dict) or not (prof.get("userName") or prof.get("newPlayerRating") is not None):
+        raise PrivNotFound(f"你在 {NAME} 上还没有音击记录，打一局再查")
+    code, msg = _status(js)
+    if code == 94001:
+        raise PrivError(f"你在 {NAME} 上的音击客户端还是 Re:Fresh 以前的版本，现在只支持 Re:Fresh（1.50）以后的新 rating")
+    data = js.get("data") if isinstance(js, dict) else None
+    if code != OK or not isinstance(data, dict):
+        raise PrivError(f"{NAME} 返回的音击 rating 看不懂" + (f"：{msg}" if msg else f"（{code}）"))
+    comp: dict[str, str] = {}
+    lamps: list[dict] = []
+    for src, dst in GEKI_FRAMES:
+        items = []
+        for e in data.get(src) or []:
+            try:
+                mid, lv = int(e.get("musicId") or 0), int(e.get("level") or 0)
+            except (TypeError, ValueError):
+                continue
+            if mid <= 0:
+                continue
+            score = int(e.get("techScoreMax") or 0)
+            items.append(f"{mid}:{lv}:{score}:{int(e.get('platinumScoreStar') or 0)}:{int(e.get('platinumScoreMax') or 0)}")
+            lamps.append(e)
+        comp[dst] = ",".join(items)
+    if not any(comp.values()):
+        raise PrivNotFound(f"你在 {NAME} 上还没有音击 rating 记录，打一局再查")
+    rating = prof.get("newPlayerRating")
+    summary = {"name": str(prof.get("userName") or ""), "lastVersion": str(prof.get("lastRomVersion") or ""),
+               "rating": int(rating) if rating is not None else None, "ratingComposition": comp}
+    return summary, lamps
+
+
 # ---------------------------------------------------------------- 客户端
 
 class RinClient:
@@ -160,6 +234,7 @@ class RinClient:
         self.hub = hub
         self.base = base.rstrip("/")
         self._access: dict[str, tuple[float, str]] = {}      # refreshToken → (时间, accessToken)
+        self._geki_music: tuple[float, dict] | None = None    # 音击曲目表（一天拉一次）
 
     # ---------- 登录 ----------
     async def _signin_result(self, status: int, js: Any) -> str:
@@ -248,3 +323,20 @@ class RinClient:
     async def mai_recent(self, cred: dict) -> tuple[PrivProfile, list[MaiPlay]]:
         prof, _ = await self.profile(cred, "mai2")
         return prof, parse_mai_recent(await self._game(cred, "mai2", "recent", "&page=0"))
+
+    # ---------- 音击（按前端代码写，未用真号核对） ----------
+    async def geki_raw(self, cred: dict) -> tuple[dict, list[dict], dict]:
+        """→ (AquaDX user-summary 的样子, 灯列表, 曲目表 all-music 的样子)。"""
+        access = await self._access_for(cred["secret"])
+        aime = cred["aime"]
+        prof = await self._get_json(f"/api/game/ongeki/profile?aimeId={aime}", access)
+        rating = await self._get_json(f"/api/game/ongeki/newRating?aimeId={aime}", access)
+        summary, lamps = parse_geki_rating(prof, rating)
+        if not self._geki_music or time.time() - self._geki_music[0] > 86400:
+            try:
+                music = geki_music_to_aqua(await self._get_json("/api/game/ongeki/data/musicList", access))
+            except PrivError:
+                music = {}
+            if music:
+                self._geki_music = (time.time(), music)
+        return summary, lamps, (self._geki_music[1] if self._geki_music else {})

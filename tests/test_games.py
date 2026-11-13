@@ -262,11 +262,43 @@ def test_chart_game_flow():
     assert "答案：" in r.texts[0] and "MASTER" in r.texts[0]
 
 
-def test_expired_session_is_dropped():
+def test_expired_session_is_dropped_but_answered():
     gc = _gc()
     run(gc.handle("g8", Ctx(), "/猜曲绘", command=True))
     gc.sessions["g8"].touched -= 3600
-    assert run(gc.handle("g8", Ctx(), "提示", command=False)) is None and "g8" not in gc.sessions
+    assert run(gc.handle("g8", Ctx(), "随便聊一句今天好热啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊", command=False)) is None
+    assert "g8" not in gc.sessions
+    r = run(gc.handle("g8", Ctx(), "提示", command=False))       # 以前这里什么都不回
+    assert r is not None and "自动结束" in r.texts[0] and "答案：" in r.texts[0]
+    assert run(gc.handle("g8", Ctx(), "提示", command=False)) is None   # 只说一次
+
+
+def test_expired_session_correct_guess_still_acknowledged():
+    gc = _gc()
+    run(gc.handle("g8b", Ctx(), "/猜曲绘", command=True))
+    s = gc.sessions["g8b"]
+    title = s.picks[0].song.title
+    s.touched -= 3600
+    gc.active("g8b")
+    r = run(gc.handle("g8b", Ctx(), title, command=False))
+    assert r is not None and "猜对了" in r.texts[0] and "自动结束" in r.texts[0]
+
+
+def test_wrong_guesses_keep_game_alive():
+    gc = _gc()
+    run(gc.handle("g8c", Ctx(), "/猜曲绘", command=True))
+    s = gc.sessions["g8c"]
+    s.touched -= 7 * 60
+    assert run(gc.handle("g8c", Ctx(), "这是什么歌", command=False)) is None
+    s.touched -= 2 * 60                     # 不算刚才那条就过期了
+    assert gc.active("g8c") is s
+
+
+def test_second_start_while_first_is_fetching():
+    gc = _gc()
+    gc.starting["g8d"] = __import__("time").time()
+    r = run(gc.handle("g8d", Ctx(), "/猜谱面 中二", command=True))
+    assert "正在开" in r.texts[0] and "g8d" not in gc.sessions
 
 
 def test_help():

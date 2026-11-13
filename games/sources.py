@@ -58,6 +58,7 @@ class GameData:
     def __init__(self, p):
         self.p = p
         self._cache: dict[tuple, tuple[float, list[Song]]] = {}
+        self._refreshing: dict[str, asyncio.Task] = {}      # sdvx.in 曲目表的后台刷新（每个游戏最多一个）
 
     def _cached(self, key, build) -> list[Song]:
         hit = self._cache.get(key)
@@ -250,8 +251,24 @@ class GameData:
         return out
 
     async def ensure_charts(self, game: str) -> int:
+        """开局前确认 sdvx.in 曲目表。已经有表（内存或磁盘缓存）就不等联网刷新：刷新放到后台，
+        免得 sdvx.in 慢的时候群里发了「/猜谱面」半天没反应。"""
+        have = len(self._sx.entries.get(game) or {})
+        if not have and hasattr(self._sx, "load_cached"):
+            have = self._sx.load_cached(game)
+        if have:
+            if not self._refreshing.get(game):
+                async def bg():
+                    try:
+                        await self._sx.ensure(game)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    finally:
+                        self._refreshing.pop(game, None)
+                self._refreshing[game] = asyncio.create_task(bg())
+            return have
         try:
-            return await self._sx.ensure(game)
+            return await asyncio.wait_for(self._sx.ensure(game), 45)
         except Exception:  # noqa: BLE001
             return len(self._sx.entries.get(game) or {})
 

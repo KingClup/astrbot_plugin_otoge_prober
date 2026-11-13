@@ -455,7 +455,7 @@ class ScoreBook:
                 res = self.store.put_geki(ctx.uid, ch.key, score, lamp or "", fb, plat, stars)
         except ScoreError as e:
             return Reply().say(str(e))
-        self.store.set_name(ctx.uid, ctx.name)
+        self.store.set_name(ctx.uid, getattr(ctx, "nick", "") or ctx.name)
         text = self._saved_text(game, ctx.uid, ch, res, note)
         if self._recent_records(ctx.uid, game) >= 2:      # 连着传第二首起，提示能批量
             text += "\n" + BATCH_TIP.format(g=game)
@@ -673,7 +673,7 @@ class ScoreBook:
             lines += [f"第 {r['line']} 行：{r['err']}" + (("（" + " / ".join(c["t"] for c in r["choices"][:3]) + "）") if r["choices"] else "")
                       for r in bad[:8]]
             return Reply().say("\n".join(lines))
-        res = self.apply_batch(ctx.uid, ctx.name, game, good)
+        res = self.apply_batch(ctx.uid, getattr(ctx, "nick", "") or ctx.name, game, good)
         word = "VF" if game == "sdvx" else "rating"
         dl = res["delta"]
         lines = [f"传了 {res['done']} 张" + (f"（{res['unchanged']} 张和之前一样）" if res["unchanged"] else "")

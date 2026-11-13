@@ -79,7 +79,8 @@ class Ctx:
     private: bool
     admin: bool
     at_uid: str | None = None
-    name: str = ""
+    name: str = ""          # 发消息时显示的名字（群里是群名片）
+    nick: str = ""          # QQ 昵称（不是群名片）；取不到就是空
 
 
 def split_args(args: list[str]) -> tuple[str | None, list[str]]:

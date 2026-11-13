@@ -44,8 +44,10 @@
     "chu/cn": [["lx", "落雪个人密钥", "手动粘贴个人 API 密钥；能查全部成绩"], ["df", "水鱼查分器", "不用密钥；只有 B30 / R10"]],
     "mai/priv": PRIV_METHODS,
     "chu/priv": PRIV_METHODS,
-    // 音击只有 AquaDX 能查（MuNET 挡第三方、RinNET 还没做音击）；绑了照样是三个游戏共用
-    "geki/priv": [["aqua", "AquaDX", "填网站用户名；不是密码。音击私服现在只有 AquaDX 能查", "唯一"]],
+    // 音击能查 AquaDX 和 RinNET（MuNET 挡第三方）；绑了照样是三个游戏共用
+    "geki/priv": [["aqua", "AquaDX", "填网站用户名；不是密码", ""],
+                  ["rin", "RinNET", "账号 + 密码登录一次，只存登录令牌", ""],
+                  ["rin_token", "RinNET（令牌）", "GitHub / 微软等第三方登录、没有密码时用", ""]],
     // 官服（オンゲキ-NET / e-amusement）免费账号看不到成绩：没有绑定，进传分网站手动传
     "geki/jp": [["sega", "SEGA ID + 密码（自动查）", "账号要开 オンゲキ-NET Standard（330 円/月）才读得到成绩；还没实测过"],
                 ["scores", "手动传分", "不开会员也行：在传分网站自己传（能批量）", "推荐"]],

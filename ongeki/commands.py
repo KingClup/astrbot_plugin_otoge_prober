@@ -46,12 +46,12 @@ HELP = """音击（オンゲキ）
 /geki 传 <歌> <难度> <技术分> [fc|ab] [fb] [★5]：聊天里传一条
 /geki 批量传 换行后一行一首：曲名 | 难度 | 技术分 | 灯 | 铃 | 白金分
 /geki b50 手动：用传的成绩出图
-私服（AquaDX）：
+私服（AquaDX / RinNET）：
 /geki b50：成绩图（新曲 10 + 旧曲 50 + P 分 50，Re:Fresh 算法）；加「文字」发文字版，「文字 全」列全部
 /geki 刷新：刚打完想马上看新成绩时用（平时 10 分钟内重复查用的是上次的数据）
-/geki 绑定 aqua <用户名>：绑 AquaDX（跟舞萌中二共用）；/geki 网页绑定：网页上选官服（传分）或私服
+/geki 绑定 aqua <用户名>：绑 AquaDX；RinNET 私聊发 /chu 绑定 rin <账号> <密码>（都跟舞萌中二共用）；/geki 网页绑定：网页上选官服（传分）或私服
 /geki 谱面 <歌名> [红|紫|lun]：sdvx.in 谱面图；/geki 别名 <歌>、/geki 加别名 <外号> <歌>
-MuNET 不让第三方工具读数据，RinNET 的音击还没做。也可以写 /音击、/ongeki"""
+MuNET 不让第三方工具读数据，查不了。也可以写 /音击、/ongeki"""
 
 
 class GekiCommands:
@@ -125,8 +125,11 @@ class GekiCommands:
         server = ALIASES.get(args[0].lower())
         if server is None:
             server, args = "aqua", ["aqua", *args]           # 「/geki 绑定 xwx」= AquaDX
+        if server == "rin":
+            return Reply().say("RinNET 是舞萌、中二、音击共用一个绑定（要账号密码，只能私聊）："
+                               "私聊发「/chu 绑定 rin <账号> <密码>」，或发「/网页绑定」在网页上填。绑好后 /geki b50 直接能查")
         if server != "aqua":
-            return Reply().say(f"{NAMES.get(server, server)} 的音击还查不了，现在只有 AquaDX 能查音击")
+            return Reply().say(f"{NAMES.get(server, server)} 的音击查不了，现在能查 AquaDX 和 RinNET")
         username = parse_username(" ".join(args[1:]))
         if not username:
             return Reply().say("用法：/geki 绑定 aqua <用户名>（aquadx.net/u/ 后面那段）")
@@ -151,13 +154,11 @@ class GekiCommands:
     async def _best(self, ctx: Ctx, full: bool, text_only: bool = False, force: bool = False) -> Reply:
         server, username = self._server(ctx.uid)
         if not server:
-            return Reply().say("你还没绑定私服。音击现在能查 AquaDX：发「/geki 绑定 aqua <用户名>」"
-                               "（跟舞萌中二共用，绑一次都能查）")
+            return Reply().say("你还没绑定私服。音击能查 AquaDX（发「/geki 绑定 aqua <用户名>」）和 RinNET"
+                               "（私聊发「/chu 绑定 rin <账号> <密码>」），都跟舞萌中二共用，绑一次都能查")
         if server == "munet":
             return Reply().say("你绑的是 MuNET：MuNET 现在不允许第三方查分工具读取数据（HTTP 418），"
                                "音击成绩去 portal.mumur.net 网站上看。有 AquaDX 号的话发「/geki 绑定 aqua <用户名>」")
-        if server == "rin":
-            return Reply().say("你绑的是 RinNET：RinNET 的音击查分还没做，现在只有 AquaDX 能查音击")
         ckey = f"{ctx.uid}:{username}"
         hit = self._best_cache.get(ckey)
         if hit and not force and time.time() - hit[0] < BEST_TTL:
@@ -165,11 +166,14 @@ class GekiCommands:
         else:
             hit = None
             try:
-                best = await fetch.aquadx_best(self._post, self._get, username, self.db, await self._all_music())
+                if server == "rin":
+                    best = await self._rin_best(ctx.uid)
+                else:
+                    best = await fetch.aquadx_best(self._post, self._get, username, self.db, await self._all_music())
             except fetch.GekiError as e:
                 return Reply().say(str(e))
             except PrivError as e:
-                return Reply().say(f"AquaDX：{e}")
+                return Reply().say(f"{'RinNET' if server == 'rin' else 'AquaDX'}：{e}")
             if len(self._best_cache) > 200:
                 self._best_cache = {k: v for k, v in self._best_cache.items() if time.time() - v[0] < BEST_TTL}
             self._best_cache[ckey] = (time.time(), best)
@@ -190,6 +194,20 @@ class GekiCommands:
         if not full:
             text += "\n（列全部发「/geki b50 文字 全」）"
         return Reply().say(text)
+
+    async def _rin_best(self, uid: str):
+        """RinNET：要玩家自己的登录（绑定时存的 refreshToken）。曲名 / 定数先用 RinNET 自己的曲目表，
+        没有再用 AquaDX 的公开曲目表；算法和 AquaDX 同一套（ongeki.aquadx.build_best）。"""
+        from .aquadx import build_best
+        cred = self.hub.bindings.cred(uid, "rin")
+        if not cred or not cred.get("secret"):
+            raise PrivError("RinNET 的登录读不出来了，私聊重新绑定一次：/chu 绑定 rin <账号> <密码>")
+        summary, lamps, music = await self.hub.client("rin").geki_raw(cred)
+        if not music:
+            music = await self._all_music() or {}
+        best = build_best(summary, lamps, music, self.db)
+        best.server = "rin"
+        return best
 
     async def _image(self, best) -> bytes:
         from .b50img import render as render_img

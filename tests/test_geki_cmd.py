@@ -59,7 +59,7 @@ async def test_geki_other_servers(tmp_path):
     h.bindings.set("42", "munet", "someone")
     assert "HTTP 418" in (await g.handle(CTX, "b50")).texts[0]
     r = await g.handle(CTX, "绑定 rin x y")
-    assert "RinNET 的音击还查不了" in r.texts[0]
+    assert "私聊" in r.texts[0] and "/chu 绑定 rin" in r.texts[0]
     assert "/geki b50" in (await g.handle(CTX, "")).texts[0]
 
 
@@ -68,3 +68,30 @@ def test_route_geki_words():
     assert route("/ongeki 谱面 Demonia").argline == "谱面 Demonia"
     assert route("/gekib50").game == "geki"
     assert route("音击 b50").how == "plain"
+
+
+async def test_geki_rinnet_b50(tmp_path):
+    from test_rinnet_geki import _rin_payload
+    prof, rating, music = _rin_payload()
+    seen = []
+
+    def handler(req: httpx.Request):
+        p = req.url.path
+        seen.append(p)
+        if p == "/api/auth/refresh":
+            return httpx.Response(200, json={"status": {"code": 92001}, "data": {"accessToken": "acc"}})
+        assert req.headers.get("authorization") == "Bearer acc"
+        if p == "/api/game/ongeki/profile":
+            return httpx.Response(200, json=prof)
+        if p == "/api/game/ongeki/newRating":
+            assert req.url.params.get("aimeId") == "123"
+            return httpx.Response(200, json=rating)
+        if p == "/api/game/ongeki/data/musicList":
+            return httpx.Response(200, json=music)
+        return httpx.Response(404)
+    h = P.Hub(str(tmp_path), transport=httpx.MockTransport(handler))
+    h.bindings.set("42", "rin", "rinuser", secret="refresh-token-xyz", extra={"aime": "123"})
+    g = GekiCommands(h)
+    t = (await g.handle(CTX, "b50 文字")).texts[0]
+    assert t.startswith("音击 · RinNET · Re:Fresh") and "21.202" in t
+    assert "/api/game/ongeki/newRating" in seen

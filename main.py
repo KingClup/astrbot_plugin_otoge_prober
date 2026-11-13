@@ -75,7 +75,7 @@ from .core.privsrv import Hub as PrivHub, NAMES as PRIV_NAMES  # noqa: E402
 from .core.privsrv.servers import rom_label  # noqa: E402
 
 PLUGIN = "astrbot_plugin_otoge_prober"
-VERSION = "2.5.0"
+VERSION = "2.5.2"
 MAI_NAMES = ("mai", "maimai", "舞萌")
 CHU_NAMES = ("chu", "chuni", "中二")
 CORE_NAMES = ("查分", "score", "otoge")
@@ -776,7 +776,26 @@ class OtogeScore(Star):
             if isinstance(comp, Comp.At) and str(comp.qq) != str(event.get_self_id()):
                 at = str(comp.qq)
         return Ctx(uid=str(event.get_sender_id()), private=event.is_private_chat(), admin=event.is_admin(),
-                   at_uid=at, name=event.get_sender_name())
+                   at_uid=at, name=event.get_sender_name(), nick=self._qq_nick(event))
+
+    @staticmethod
+    def _qq_nick(event: AstrMessageEvent) -> str:
+        """QQ 昵称（OneBot 消息里 sender.nickname），不是群名片。AstrBot 的 get_sender_name() 在群里给的是群名片。"""
+        try:
+            raw = getattr(event.message_obj, "raw_message", None)
+            sender = raw.get("sender") if hasattr(raw, "get") else getattr(raw, "sender", None)
+            nick = sender.get("nickname") if hasattr(sender, "get") else getattr(sender, "nickname", "")
+            return str(nick or "").strip()[:40]
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _book_name(self, ctx: Ctx) -> str:
+        """SDVX / 音击手动传分的成绩图上写的名字：QQ 昵称优先（顺手存下来，传分网站也用它），没有再用存过的 / 群名片。"""
+        sb = self.scorebook
+        if ctx.nick:
+            sb.store.set_name(ctx.uid, ctx.nick)
+            return ctx.nick
+        return sb.store.user(ctx.uid).get("name") or ctx.name or ""
 
     async def _recall(self, event: AstrMessageEvent) -> None:
         try:
@@ -1004,7 +1023,7 @@ class OtogeScore(Star):
                        (f" {nav['d']}" if nav.get("d") else "") + "）"
             return Reply().say(f"传分网站{what}：\n{direct}\n你已经在 {n_sess} 个设备上登录过，在那台设备上直接打开就行。"
                                "\n这台设备没登录过的话点开是只读模式：发「/传分 登录」要登录链接（私聊发更省事，不用确认码）。")
-        tok = self.scorebook.sessions.issue_login(ctx.uid, ctx.name, game, confirm=not ctx.private)
+        tok = self.scorebook.sessions.issue_login(ctx.uid, ctx.nick or ctx.name, game, confirm=not ctx.private)
         nav = self.scorebook.deep_link(game, rest)
         link = f"{url}/scores#" + urlencode({"t": tok, **nav})
         if nav.get("k") or nav.get("q"):
@@ -1065,7 +1084,7 @@ class OtogeScore(Star):
                 return Reply().say(sb.sdvx_text(ctx.uid))
             if not text:
                 try:
-                    img = await sb.sdvx_image(ctx.uid, sb.store.user(ctx.uid).get("name") or ctx.name or "",
+                    img = await sb.sdvx_image(ctx.uid, self._book_name(ctx),
                                               self.bot_name, getattr(self.chu_svc.settings, "font_path", None),
                                               getattr(self.chu_svc.settings, "timezone", None) or "Australia/Sydney")
                     if img:
@@ -1102,7 +1121,7 @@ class OtogeScore(Star):
         sb = self.scorebook
         if not sb.store.has_any(ctx.uid, "geki"):
             return Reply().say("你还没传过音击成绩。发「/geki 传分」打开传分网站，或者 /geki 传 <歌> <难度> <技术分> [fc|ab]")
-        name = sb.store.user(ctx.uid).get("name") or ctx.name or ""
+        name = self._book_name(ctx)
         best = SBK.geki_best(sb.cat("geki"), sb.store.scores(ctx.uid, "geki"), name)
         best.show_plat = self.prefs.show(ctx.uid, "geki_plat")
         text = any(w in ("文字", "text", "txt", "文本") for w in words)

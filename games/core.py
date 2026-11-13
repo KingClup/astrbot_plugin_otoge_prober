@@ -354,6 +354,7 @@ def choose_window(n_measures: int, max_show: int, rnd: random.Random | None = No
 GAME_LABEL = {"mai": "舞萌", "chu": "中二", "geki": "音击", "sdvx": "SDVX", "pjsk": "PJSK"}
 KIND_LABEL = {"letters": "开字母", "jacket": "猜曲绘", "chart": "猜谱面"}
 IDLE_TIMEOUT = {"letters": 20 * 60, "jacket": 8 * 60, "chart": 8 * 60}
+MAX_AGE = 60 * 60          # 一局最长开这么久（群里一直在聊、猜错也会续命，总得有个头）
 
 
 @dataclass
@@ -371,7 +372,8 @@ class Session:
 
     @property
     def expired(self) -> bool:
-        return time.time() - self.touched > IDLE_TIMEOUT.get(self.kind, 600)
+        now = time.time()
+        return now - self.touched > IDLE_TIMEOUT.get(self.kind, 600) or now - self.started > MAX_AGE
 
     @property
     def done(self) -> bool:

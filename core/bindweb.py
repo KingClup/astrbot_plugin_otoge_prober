@@ -238,7 +238,7 @@ class Binder:
                    ("mai", "cn", "df"), ("mai", "cn", "lx"), ("mai", "cn", "lxqq"), ("chu", "cn", "lxqq"),
                    ("chu", "intl", "clal"), ("chu", "intl", "sega"), ("chu", "jp", "sega"), ("chu", "cn", "df"), ("chu", "cn", "lx"),
                    *((g, "priv", m) for g in ("mai", "chu") for m in PRIV_METHODS),
-                   ("geki", "priv", "aqua"),            # 音击私服只有 AquaDX 能查；绑定本身三个游戏共用
+                   ("geki", "priv", "aqua"), ("geki", "priv", "rin"), ("geki", "priv", "rin_token"),   # 绑定本身三个游戏共用
                    ("geki", "jp", "sega")}              # 音击官服：SEGA ID 登录 オンゲキ-NET（要 Standard）
         if combo not in allowed:
             raise BindError("游戏 / 区服 / 方式不对，刷新页面再试")
@@ -304,8 +304,10 @@ class Binder:
         for x in secrets_used:
             REDACTOR.remember(x)
         try:
-            if game == "geki":                      # /geki 绑定 aqua <用户名> 同一条路（验证用户存在后写进共用绑定）
+            if game == "geki" and method == "aqua":   # /geki 绑定 aqua <用户名> 同一条路（验证用户存在后写进共用绑定）
                 r = await self.p.geki._bind(ctx, ["aqua", *args])
+            elif game == "geki":                    # RinNET：和中二用同一个共用绑定
+                r = await self.p.chu._bind_priv(ctx, PRIV_METHODS[method], args)
             else:
                 handler = self.p.cmd if game == "mai" else self.p.chu
                 r = await handler._bind_priv(ctx, PRIV_METHODS[method], args)

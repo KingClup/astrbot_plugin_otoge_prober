@@ -7,6 +7,9 @@
 ![AstrBot](https://img.shields.io/badge/AstrBot-%E2%89%A5%204.29.4-4c7fd9)
 ![平台](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-QQ%20%C2%B7%20aiocqhttp%20%2F%20NapCat-8fb2d9)
 ![协议](https://img.shields.io/badge/%E5%8D%8F%E8%AE%AE-MIT-1b2a4a)
+[![B站介绍视频](https://img.shields.io/badge/B%E7%AB%99-%E4%BB%8B%E7%BB%8D%E8%A7%86%E9%A2%91-fb7299?logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1TVWo6PEwj/)
+
+📺 介绍视频（B站）：<a href="https://www.bilibili.com/video/BV1TVWo6PEwj/">BV1TVWo6PEwj</a>
 
 <img src="docs/images/help_overview.jpg" width="760" alt="/查分 帮助 的总览图">
 
@@ -51,7 +54,7 @@
 |---|---|---|---|---|
 | **舞萌 DX** `/mai` | ✅ NET（SEGA ID 或 clal） | ✅ NET（SEGA ID） | ✅ 落雪（授权 / 按 QQ / 个人密钥）、水鱼 | ✅ AquaDX、RinNET |
 | **中二节奏** `/chu` | ✅ NET（SEGA ID 或 clal） | ✅ NET（SEGA ID） | ✅ 落雪、水鱼 | ✅ AquaDX、RinNET |
-| **音击** `/geki` | — | ✅ NET（要 Standard 会员）或手动传分 | — | ✅ AquaDX |
+| **音击** `/geki` | — | ✅ NET（要 Standard 会员）或手动传分 | — | ✅ AquaDX、RinNET |
 | **SOUND VOLTEX** `/sdvx` | — | ✅ 手动传分（∇ 规则算 VF） | — | — |
 | **谱面图** `/谱面` | 中二 · 音击 · SDVX · PJSK，不分区服 | | | |
 
@@ -155,7 +158,7 @@
 | `b50` | 新曲 10 + 旧曲 50 + P 分 50（Re:Fresh 算法） |
 | `b50 手动` | 用手动传的成绩出图 |
 | `绑定 官服`、`同步` | 网页填 SEGA ID，自动查（要 Standard 会员才看得到成绩） |
-| `绑定 aqua <用户名>` | 私服 AquaDX |
+| `绑定 aqua <用户名>` | 私服 AquaDX；RinNET 和舞萌中二共用一个绑定（私聊 `/chu 绑定 rin <账号> <密码>` 或网页绑定） |
 | `传分 [歌]`、`传 …`、`批量传` | 手动传分，见[传分网站](#传分网站) |
 | `谱面 <歌> [红\|紫\|lun]` | 谱面图 + 等级、CHAIN · BELL、谱师 |
 
@@ -315,6 +318,7 @@ SDVX 官服和音击官服（没开会员时）没法自动查分，所以做了
 - **舞萌的搭档 / 旅行伙伴**：还没做。
 - **NET 维护时段**：查不了，会用上次缓存的成绩并注明。
 - 音击 rating 的计算值和服务器显示值可能差 0.001–0.002，图上以服务器值为主。
+- **音击 RinNET**：按 RinNET 网站的前端代码接的，还没用真号核对；只支持 Re:Fresh（1.50）以后的客户端。
 
 ## 数据来源和致谢
 

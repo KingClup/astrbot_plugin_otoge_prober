@@ -43,6 +43,8 @@ LETTER_HINT = re.compile(r"^(?:(\d{1,2})\s*[.．、。:：号]?\s*(?:提示|hint
 STATUS_WORDS = {"状态", "题目", "看题", "进度"}
 LETTERS_N = 10
 CHART_MAX = 8                   # measures shown at most (stage 0 = 1 measure … stage 7 = 8)
+CHART_BUDGET = 50               # 秒：猜谱面开局取图最多等这么久（几首候选一共），超了就说没拿到，不让群里干等
+EXPIRED_GRACE = 30 * 60         # 秒：一局放太久自动结束后，这段时间里有人再猜 / 发「结束」，告诉他答案
 
 HELP = """猜歌小游戏（群里、私聊都能玩；一个群同时只开一局）
 /猜歌 [游戏] [定数]   开字母：出 10 首歌名，全部打码
@@ -81,6 +83,8 @@ class GameCommands:
         self.help = help                              # async () -> Reply：图片版帮助；没有就发文字
         self.rnd = rnd or random.Random()
         self.sessions: dict[str, Session] = {}
+        self.starting: dict[str, float] = {}          # origin → 开局开始的时间（取图期间别再开一局把它顶掉）
+        self.expired: dict[str, tuple[Session, float]] = {}   # origin → (放太久自动结束的那局, 结束时间)
         self.on_message_log = None    # (origin, ctx, text) → None：局里的每条消息（别名收集用）
         self.on_title_solve = None    # (origin, session, index, ctx, guess) → None：有人用原名猜中
         self.on_alias_solve = None    # 同上：有人用已有外号猜中（外号少的歌也问一句「还有别的叫法吗」）
@@ -95,8 +99,34 @@ class GameCommands:
         s = self.sessions.get(origin)
         if s is not None and s.expired:
             self.sessions.pop(origin, None)
+            self.expired[origin] = (s, time.time())
+            log.info(f"[otoge] game expired (idle): {origin.rsplit(':', 1)[-1]} {s.kind} {s.game}")
             return None
         return s
+
+    def _after_expired(self, origin: str, t: str, command: bool) -> Reply | None:
+        """一局因为太久没人动自动结束了：之后有人发「结束 / 提示 / 状态」、「猜 xxx」或者正好猜对，别装没听见。"""
+        got = self.expired.get(origin)
+        if got is None:
+            return None
+        s, when = got
+        if time.time() - when > EXPIRED_GRACE:
+            self.expired.pop(origin, None)
+            return None
+        low = t.lower()
+        m = re.match(r"^猜\s*(.+)$", t)
+        asked = low in END_WORDS or low in HINT_WORDS or low in STATUS_WORDS or bool(m) or bool(LETTER_HINT.match(t))
+        guess = m.group(1).strip() if m else t
+        hit = s.kind != "letters" and 0 < len(guess) <= 80 and G.is_answer(guess, s.picks[0].song)
+        if not (asked or hit):
+            return None
+        self.expired.pop(origin, None)
+        mins = max(1, int(G.IDLE_TIMEOUT.get(s.kind, 600) // 60))
+        head = (f"✓ 猜对了！不过这局{G.KIND_LABEL[s.kind]}之前 {mins} 分钟没动静，已经自动结束了" if hit
+                else f"这局{G.KIND_LABEL[s.kind]}之前 {mins} 分钟没动静，已经自动结束了")
+        r = self.finish(origin, s, prefix=head)
+        r.say("想再来一局发「/" + {"letters": "猜歌", "jacket": "猜曲绘", "chart": "猜谱面"}[s.kind] + "」")
+        return r
 
     async def handle(self, origin: str, ctx, text: str, *, command: bool) -> Reply | None:
         """command = the message is addressed to us (slash / @ / private chat). Returns None when the
@@ -108,7 +138,9 @@ class GameCommands:
             return await self.start(origin, ctx, kind, rest)
         s = self.active(origin)
         if s is None:
-            return None
+            if origin in self.starting and (t.lower() in END_WORDS or t.lower() in HINT_WORDS):
+                return Reply().say("正在开局（在拿图），稍等一下")
+            return self._after_expired(origin, t, command)
         return await self.on_message(origin, s, ctx, t)
 
     # ---------------------------------------------------------------- start
@@ -149,6 +181,8 @@ class GameCommands:
         if cur is not None:
             return Reply().say(f"这里还有一局{G.KIND_LABEL[cur.kind]}没结束（{G.GAME_LABEL[cur.game]}）。"
                                "接着猜，或者发「结束」公布答案")
+        if time.time() - self.starting.get(origin, 0) < CHART_BUDGET + 30:
+            return Reply().say("刚才那局正在开（在拿图），稍等一下，别再开一局")
         game, region, rng, unknown = self._parse(kind, words, ctx.uid)
         ver = ""
         if unknown:
@@ -167,6 +201,8 @@ class GameCommands:
                 return Reply().say("sdvx.in 没有舞萌的谱面，猜谱面可以选：中二 / 音击 / sdvx / pjsk")
             names = " / ".join(G.GAME_LABEL[g] for g in SUPPORTED[kind])
             return Reply().say(f"{G.KIND_LABEL[kind]}现在支持：{names}")
+        self.expired.pop(origin, None)
+        self.starting[origin] = time.time()
         try:
             if kind == "letters":
                 if game in ("sdvx", "pjsk"):
@@ -181,6 +217,8 @@ class GameCommands:
             log.warning(f"[otoge] game start failed: {type(e).__name__}: {e}", exc_info=True)
             self.sessions.pop(origin, None)
             return Reply().say("开局失败了（曲库或图片没拿到），等会儿再试试")
+        finally:
+            self.starting.pop(origin, None)
 
     def _range_note(self, rng: Range, game: str = "", ver: str = "", region: str = "jp") -> str:
         bits = []
@@ -233,9 +271,14 @@ class GameCommands:
         cands = G.pick(songs, rng, 4, rnd=self.rnd)
         if not cands:
             return Reply().say(f"sdvx.in 上 {G.GAME_LABEL[game]} 没有符合「{self._range_note(rng, game, ver, region)}」的谱面")
+        deadline = time.monotonic() + CHART_BUDGET
         for p in cands:
+            left = deadline - time.monotonic()
+            if left < 3:
+                log.info(f"[otoge] chart picture: gave up after {CHART_BUDGET}s ({game})")
+                break
             try:
-                got = await asyncio.wait_for(self.data.chart_picture(p.chart), 60)
+                got = await asyncio.wait_for(self.data.chart_picture(p.chart), left)
             except Exception as e:  # noqa: BLE001
                 log.info(f"[otoge] chart picture failed: {type(e).__name__}: {e}")
                 got = None
@@ -379,6 +422,8 @@ class GameCommands:
             return None
         hits = [i for i, p in enumerate(s.picks) if i not in s.solved and G.is_answer(t, p.song)]
         if not hits:
+            if explicit or len(t) <= 30:
+                s.touch()                        # 有人在猜（猜错也算）：别让这局因为「没人动」过期
             return Reply().say("不对哦") if explicit else None
         s.touch()
         for i in hits:
