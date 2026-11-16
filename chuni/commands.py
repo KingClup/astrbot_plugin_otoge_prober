@@ -666,7 +666,9 @@ class ChuCommands:
                 why = f" ← 外号「{m.name}」" if m.by_alias else ""
                 lines.append(f"{i}. {m.item.title}（ID {m.item.id}{' · ' + m.item.genre if m.item.genre else ''}）{why}")
             lines.append(f"例：/chu {cmd} {d.choices[0].item.id}")
-            return None, Reply().say("\n".join(lines)), ""
+            r = Reply().say("\n".join(lines))
+            r.picks = [("chu", f"{cmd} {m.item.id}") for m in d.choices]
+            return None, r, ""
         return None, Reply().say(f"没找到「{q}」。可以试试歌名的一部分、常用外号或曲目 ID；"
                                  f"外号没收录的话可以发「/chu 加别名 外号 歌名」教我。"), ""
 

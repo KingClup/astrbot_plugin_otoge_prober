@@ -37,6 +37,7 @@ from .core import consts_hub as CH  # noqa: E402
 from .mai.data.consts_apply import apply_mai_consts  # noqa: E402
 from .core.migrate import migrate  # noqa: E402
 from .core.route import CHART_SUBS, SONG_SUBS, route  # noqa: E402
+from .core.picks import PickBox  # noqa: E402
 from .chart.commands import ChartCommands  # noqa: E402
 from .chart.sdvxin import SdvxIn  # noqa: E402
 from .ongeki.commands import GekiCommands  # noqa: E402
@@ -75,7 +76,7 @@ from .core.privsrv import Hub as PrivHub, NAMES as PRIV_NAMES  # noqa: E402
 from .core.privsrv.servers import rom_label  # noqa: E402
 
 PLUGIN = "astrbot_plugin_otoge_prober"
-VERSION = "2.5.2"
+VERSION = "2.5.3"
 MAI_NAMES = ("mai", "maimai", "舞萌")
 CHU_NAMES = ("chu", "chuni", "中二")
 CORE_NAMES = ("查分", "score", "otoge")
@@ -130,6 +131,7 @@ class OtogeScore(Star):
                          ignore=lambda d, names: [n for n in names if n in ("__pycache__", "outbox", "render")])
             self.migration["renamed"] = "已从 astrbot_plugin_otoge_score 复制全部数据"
         self.prefs = Prefs(root)
+        self.picks = PickBox()          # 「可能是这几首」之后 15 秒内直接回序号
         self.bot_name = str(self._cfg("bot_name", "AstrBot") or "AstrBot")
         self.next_refresh = None
         self._init_mai(os.path.join(root, "mai"))
@@ -848,7 +850,23 @@ class OtogeScore(Star):
             f.write(data)
         return path
 
+    def _arm_picks(self, event: AstrMessageEvent, r: Reply) -> None:
+        """回复里有候选列表 → 记下来，同一个人 15 秒内回序号就直接查那一首。"""
+        hint = self.picks.arm((event.unified_msg_origin, str(event.get_sender_id())), r.picks)
+        if hint:
+            r.say(hint)
+
+    async def _run_pick(self, event: AstrMessageEvent, item) -> Reply:
+        try:
+            if isinstance(item, tuple):
+                return await self._dispatch(event, item[0], item[1])
+            return await item()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] pick failed: {type(e).__name__}: {e}")
+            return Reply().say("这首没查成，换个说法再查一次吧")
+
     async def _emit(self, event: AstrMessageEvent, r: Reply):
+        self._arm_picks(event, r)
         if r.recall:
             await self._recall(event)
         if r.image:
@@ -2052,7 +2070,12 @@ class OtogeScore(Star):
                 yield event.plain_result("群里别发 clal！我试着撤回了；保险起见去 NET 退出登录一次让它失效。"
                                          "绑定发「/网页绑定」，拿链接在网页上填。")
             return
-        r = await self.cmd.on_flow_message(ctx, text) if ctx.private else None   # mai SEGA ID / password steps
+        r = None
+        pick = self.picks.take((event.unified_msg_origin, ctx.uid), text)     # 「可能是这几首」后回的序号
+        if pick is not None:
+            r = await self._run_pick(event, pick)
+        if r is None and ctx.private:
+            r = await self.cmd.on_flow_message(ctx, text)                    # mai SEGA ID / password steps
         if r is None and not ctx.private:
             r = self._alias_vote(event.unified_msg_origin, ctx, text)          # 别名投票的 y / n
         if r is None and self._games_on():

@@ -149,14 +149,33 @@ class ChartCommands:
         d = decide(self.src.index(game).search(q, 8), q)
         if d.item is not None:
             return d.item, None, d.note
+        if (e := self._title_artist(game, q)) is not None:     # 「歌名（曲师）」：照着候选列表抄回来的
+            return e, None, ""
         if chu_err is not None and any("可能是" in t for t in chu_err.texts):
             return None, chu_err, ""
         if d.choices:
-            lines = [f"「{q}」可能是这几首，换个更完整的名字再查："]
+            lines = [f"「{q}」可能是这几首："]
             for i, m in enumerate(d.choices, 1):
                 lines.append(f"{i}. {m.item.title}" + (f"（{m.item.artist}）" if m.item.artist else ""))
-            return None, Reply().say("\n".join(lines)), ""
+            r = Reply().say("\n".join(lines))
+            r.pick_items = [m.item for m in d.choices]
+            return None, r, ""
         return None, Reply().say(f"sdvx.in 的 {GAME_LABEL[game]} 里没找到「{q}」"), ""
+
+    def _title_artist(self, game: str, q: str) -> Entry | None:
+        """「Bl∞min'（MisoilePunch♪ -Forever-）」：歌名 + 括号里的曲师，两样都对上的那一首。"""
+        try:
+            from ..mai.data.fuzzy import fold
+        except ImportError:
+            from mai.data.fuzzy import fold
+        m = re.match(r"^(.+?)\s*[（(]([^（）()]+)[）)]\s*$", q.strip())
+        if not m:
+            return None
+        title, artist = fold(m.group(1)), fold(m.group(2))
+        hits = [e for e in self.src.entries.get(game, {}).values()
+                if fold(e.title) == title and (not artist or fold(e.artist or "") == artist)]
+        hits.sort(key=lambda e: e.removed)
+        return hits[0] if hits else None
 
     async def _chart(self, game: str, words: list[str]) -> Reply:
         key, rest = split_diff(game, words)
@@ -165,6 +184,10 @@ class ChartCommands:
         q = " ".join(rest)
         e, err, note = await self._find(game, q)
         if err:
+            for it in getattr(err, "pick_items", None) or []:
+                async def pick(it=it, key=key):
+                    return await self._answer(it, key or hardest(it, game), "")
+                err.picks.append(pick)
             return err
         if key is None:
             key = hardest(e, game)

@@ -63,6 +63,9 @@ class Reply:
     recall: bool = False      # try to recall the user's message (contains a secret)
     stop: bool = True
     at: str | None = None     # @ this QQ at the start of the reply (group web-bind links)
+    # 「可能是这几首」时，回 1 / 2 / 3 选哪首：每项是 (游戏, 指令参数) 或者一个 async 函数（→ Reply）。
+    # main 的 guard 记 15 秒，同一个人回序号就照着跑
+    picks: list = field(default_factory=list)
 
     def say(self, t: str) -> "Reply":
         self.texts.append(t)
@@ -707,7 +710,10 @@ class Commands:
             return song, None, "\n".join([f"外号「{q}」还对应：", *(f"{o.title}（{sid(o)}）" for o in others[:4]),
                                            f"看别的发「/mai {cmd} ID」"])
         if d.choices:
-            return None, Reply().say(self._song_choices(q, d.choices, cmd)), ""
+            r = Reply().say(self._song_choices(q, d.choices, cmd))
+            r.picks = [("mai", f"{cmd} {min(m.item.music_ids()) if m.item.music_ids() else m.item.title}")
+                       for m in d.choices]
+            return None, r, ""
         return None, Reply().say(f"没找到「{q}」。可以试试歌名的一部分、常用外号或曲目 ID；"
                                  f"知道是哪首但外号没收录的话，可以发「/mai 加别名 外号 歌名」教我。"), ""
 
