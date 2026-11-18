@@ -1,20 +1,13 @@
 name: astrbot_plugin_otoge_prober
 display_name: 音游查分器 Otoge Prober
 short_desc: "舞萌 DX / 中二节奏 / 音击 / SDVX 查分：B50 / VF 图、查歌定数、sdvx.in 谱面、群里猜歌小游戏、手机传分网站"
-desc: |
-  舞萌 DX、中二节奏、音击、SOUND VOLTEX 的 QQ 查分插件（NapCat / aiocqhttp）。
-
-  - **查分**：舞萌 / 中二支持国际服、日服 NET、国服（落雪授权 / 水鱼）、私服（AquaDX / RinNET）；音击支持官服 NET、AquaDX、RinNET；B50 / B30 / 音击 B60 图片带曲绘。
-  - **SDVX / 音击手动传分**：手机网页录分（曲绘批量录、机台式分数、EX SCORE），出 ∇ VOLFORCE 50 图。
-  - **查歌 / 定数 / 定数表**：各服定数对照，外号 + 模糊查歌，名字对不上几首时直接回序号。
-  - **谱面查询**：sdvx.in 的中二 / 音击 / SDVX / PJSK 谱面图、物量、BPM。
-  - **群里小游戏**：开字母猜歌、猜曲绘、猜谱面，猜歌时收集外号投票，外号可在装了插件的 bot 之间共享。
-  - **网页绑定**：手机上点链接绑账号，密码不进聊天记录；WebUI 管理页、按群开关的自然语言查分、分主题的图片帮助。
+desc: "舞萌 DX / 中二节奏 / 音击 / SOUND VOLTEX 的 QQ 查分插件（NapCat）。舞萌、中二支持国际服、日服、国服（落雪 / 水鱼）和私服（AquaDX / RinNET），音击支持官服和私服，出带曲绘的 B50 图；SDVX 和音击可以在手机网页上手动传分，出 VOLFORCE 50 图。另外有查歌和各服定数表、sdvx.in 谱面查询、群里猜歌小游戏（开字母 / 猜曲绘 / 猜谱面），账号在手机网页上绑定，密码不进聊天记录。"
 author: KingClup & Claude (vibe coding)
 version: v2.5.4
 astrbot_version: ">=4.29.4,<5"
 support_platforms:
   - aiocqhttp
+category: 娱乐
 tags:
   - 音游
   - 查分
