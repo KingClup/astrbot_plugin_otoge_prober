@@ -95,6 +95,61 @@ def build_sdvx(songs: list[dict], charts: list[dict]) -> dict:
             "versions": [list(v) for v in SDVX_VERSIONS], "genres": [], "diffs": SDVX_DIFFS, "songs": out}
 
 
+# ---------- SDVX：Tachi 还没收的新歌，从 sdvx.in 曲目表补 ----------
+SXIN_BASE = 900000          # 补进来的歌：歌曲键 = 900000 + sdvx.in 编号（纯数字，网页按「新」排序时排最前）
+SXIN_4TH = {"MAXIMUM": "MXM", "INFINITE": "INF", "GRAVITY": "GRV", "HEAVENLY": "HVN", "VIVID": "VVD",
+            "EXCEED": "XCD", "NABLA": "NBL", "ULTIMATE": "ULT"}
+
+
+def is_sxin_key(k: str) -> bool:
+    return str(k).isdigit() and int(k) >= SXIN_BASE
+
+
+def _sxin_level(text: str) -> float | None:
+    try:
+        v = float(text)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
+def supplement_sdvx(data: dict, entries, fold) -> tuple[dict, dict[str, str]]:
+    """Tachi 曲库 + sdvx.in 有、Tachi 没有的歌（新歌常常要过几周 Tachi 才收）。
+
+    entries：chart.sdvxin.Entry 列表（sdvx）；fold：模糊比较用的归一化。
+    返回 (新曲库, {以前补进来的键 → Tachi 现在的键})——Tachi 收了以后把成绩挪过去。"""
+    songs = [s for s in data.get("songs") or [] if not is_sxin_key(s["k"])]
+    have: dict[str, str] = {}
+    for s in songs:
+        have.setdefault(fold(s["t"]), s["k"])
+    extra, moved = [], {}
+    for e in entries:
+        if getattr(e, "removed", False) or not str(e.id).isdigit():
+            continue
+        key = str(SXIN_BASE + int(e.id))
+        hit = have.get(fold(e.title))
+        if hit is not None:
+            moved[key] = hit
+            continue
+        rows = []
+        for dk, code in (("nov", "NOV"), ("adv", "ADV"), ("exh", "EXH"), ("mxm", None)):
+            if not e.exists(dk):
+                continue
+            n = _sxin_level(e.level_text(dk))
+            if n is None:
+                continue
+            d = code or SXIN_4TH.get(e.diff_label(dk), "MXM")
+            rows.append({"d": d, "l": e.level_text(dk), "n": n, "x": 1})
+        if rows:
+            extra.append({"k": key, "t": e.title, "a": e.artist or "", "v": SDVX_CURRENT, "c": rows, "sx": e.id})
+    if not extra and len(songs) == len(data.get("songs") or []):
+        return data, moved
+    out = dict(data)
+    out["songs"] = songs + sorted(extra, key=lambda s: int(s["k"]))
+    out["extra"] = len(extra)
+    return out, moved
+
+
 def build_geki(music_ex: list[dict], db=None) -> dict:
     """otoge-db 的 music-ex.json → 精简曲库。定数优先用插件自己的定数表（和 /geki b50 一致）。"""
     out = []

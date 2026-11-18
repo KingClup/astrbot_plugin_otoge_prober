@@ -76,7 +76,7 @@ from .core.privsrv import Hub as PrivHub, NAMES as PRIV_NAMES  # noqa: E402
 from .core.privsrv.servers import rom_label  # noqa: E402
 
 PLUGIN = "astrbot_plugin_otoge_prober"
-VERSION = "2.5.3"
+VERSION = "2.5.4"
 MAI_NAMES = ("mai", "maimai", "舞萌")
 CHU_NAMES = ("chu", "chuni", "中二")
 CORE_NAMES = ("查分", "score", "otoge")
@@ -346,6 +346,11 @@ class OtogeScore(Star):
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[otoge] sdvx.in {game} list failed: {type(e).__name__}: {e}")
         self.scorebook.sync_aliases()                   # sdvx.in 的外号也给传分网站搜歌用
+        try:
+            n = self.scorebook.supplement_sdvx()        # Tachi 还没收的 SDVX 新歌从 sdvx.in 补
+            logger.info(f"[otoge] 传分本 SDVX 曲库从 sdvx.in 补了 {n} 首新歌")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[otoge] SDVX 新歌补充失败：{type(e).__name__}: {e}")
 
     async def _scorebook_loop(self) -> None:
         """传分本曲库：SDVX 从 Tachi、音击从 otoge-db，每天拉一次（失败就用旧的 / 插件自带的）。"""
@@ -354,7 +359,10 @@ class OtogeScore(Star):
             for game in ("sdvx", "geki"):
                 try:
                     n = await self.scorebook.refresh(game)
-                    logger.info(f"[otoge] 传分本曲库 {game}: {n} 首")
+                    if game == "sdvx":
+                        await self.charts.src.ensure("sdvx")      # sdvx.in 曲目表一天刷一次，新歌跟着补
+                        self.scorebook.supplement_sdvx()
+                    logger.info(f"[otoge] 传分本曲库 {game}: {len(self.scorebook.cat(game) or [])} 首")
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:  # noqa: BLE001

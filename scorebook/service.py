@@ -241,16 +241,32 @@ class ScoreBook:
             self.last_refresh[game] = time.time() - REFRESH_SECS + 3600       # 一小时后再试
             raise
         old = self.cats.get(game)
-        if old is not None and len(data["songs"]) < len(old) * 0.9:
+        if old is not None and len(data["songs"]) < (len(old) - int(old.data.get("extra") or 0)) * 0.9:
             self.last_error[game] = f"新曲库只有 {len(data['songs'])} 首（原来 {len(old)}），没换"
             self.last_refresh[game] = time.time()
             return len(old)
         await asyncio.to_thread(C.save, data, self._cache_path(game))
         self.cats[game] = C.Catalog(data)
         self._merge_aliases(game)
+        if game == "sdvx":
+            self.supplement_sdvx()
         self.last_refresh[game] = time.time()
         self.last_error.pop(game, None)
         return len(self.cats[game])
+
+    def supplement_sdvx(self) -> int:
+        """SDVX 曲库里补上 sdvx.in 有、Tachi 还没收的新歌；Tachi 收了的把成绩挪到正式的歌曲键。返回补了几首。"""
+        cat, src = self.cats.get("sdvx"), self.sdvxin
+        ents = list(((getattr(src, "entries", None) or {}).get("sdvx") or {}).values()) if src is not None else []
+        if cat is None or not ents:
+            return 0
+        data, moved = C.supplement_sdvx(cat.data, ents, fold)
+        if moved:
+            self.store.move_keys("sdvx", moved)               # 以前补进来、现在 Tachi 收了的：成绩挪过去
+        if data is not cat.data:
+            self.cats["sdvx"] = C.Catalog(data)
+            self._merge_aliases("sdvx")
+        return int(data.get("extra") or 0)
 
     def _sdvxin_map(self, game: str) -> dict[str, str]:
         """fold(标题) → sdvx.in 曲目编号（按 sdvx.in 曲目表缓存，曲目表换了才重算）。"""

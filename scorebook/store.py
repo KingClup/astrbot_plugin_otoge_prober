@@ -85,6 +85,38 @@ class ScoreStore:
     def _save(self, uid: str) -> None:
         _write(self._path(uid), self._cache[str(uid)])
 
+    def move_keys(self, game: str, moved: dict[str, str]) -> int:
+        """歌曲键改了（补进来的新歌 Tachi 收了）：把所有人的 "<旧键>:<难度>" 挪到 "<新键>:<难度>"。
+        两边都有就留分数 / 灯 / EX 各自高的。返回挪了几条。"""
+        if not moved or not os.path.isdir(self.dir):
+            return 0
+        n = 0
+        with self._lock:
+            for fn in os.listdir(self.dir):
+                if not fn.endswith(".json"):
+                    continue
+                uid = fn[:-5]
+                try:
+                    book = self.user(uid).get(game) or {}
+                except ScoreError:
+                    continue
+                hit = False
+                for key in [k for k in book if k.split(":", 1)[0] in moved]:
+                    sk, d = key.split(":", 1)
+                    rec, dst = book.pop(key), f"{moved[sk]}:{d}"
+                    cur = book.get(dst)
+                    if cur:
+                        rec = dict(cur, s=max(int(cur.get("s") or 0), int(rec.get("s") or 0)),
+                                   x=max(int(cur.get("x") or 0), int(rec.get("x") or 0)) or None,
+                                   l=max((cur.get("l") or "PLAY", rec.get("l") or "PLAY"), key=K.lamp_rank))
+                        if not rec.get("x"):
+                            rec.pop("x", None)
+                    book[dst] = rec
+                    hit, n = True, n + 1
+                if hit:
+                    self._save(uid)
+        return n
+
     # ---------- 写 ----------
     def put_sdvx(self, uid: str, key: str, score: int, lamp: str | None, overwrite: bool = False,
                  ex: int | None = None) -> dict:

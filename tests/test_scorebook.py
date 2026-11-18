@@ -645,3 +645,45 @@ def test_active_sessions_count(tmp_path):
     assert ws.active("1") == 2 and ws.active("2") == 1
     ws.drop_user("1")
     assert ws.active("1") == 0
+
+
+# ---------- Tachi 还没收的新歌：从 sdvx.in 补，收了以后成绩跟过去 ----------
+def test_sdvx_new_songs_from_sdvxin(tmp_path):
+    from chart.sdvxin import Entry
+    sb = ScoreBook(str(tmp_path))
+    raw = {"id": "07125", "title": "Lantana", "artist": "AAAAoi(ああああ+Aoi)",
+           "levels": {"nov": "_7", "adv": "_14", "exh": "175", "mxm": "195"}}
+    gone = {"id": "07126", "title": "Gone Song", "artist": "x", "levels": {"mxm": "18"}}
+    old = next(iter(sb.cat("sdvx").songs.values()))
+    dup = {"id": "00001", "title": old.title, "artist": old.artist, "levels": {"mxm": "18"}}
+
+    class Src:
+        entries = {"sdvx": {"07125": Entry("sdvx", "07125", "Lantana", raw["artist"], raw),
+                            "07126": Entry("sdvx", "07126", "Gone Song", "x", gone, removed=True),
+                            "00001": Entry("sdvx", "00001", old.title, old.artist, dup)}}
+    sb.sdvxin = Src()
+    base = len(sb.cat("sdvx"))
+    assert sb.supplement_sdvx() == 1
+    cat = sb.cat("sdvx")
+    assert len(cat) == base + 1                                  # 删了的、Tachi 已有的都不补
+    song = next(s for s in cat.songs.values() if s.title == "Lantana")
+    assert song.key == "907125" and song.charts["MXM"].num == 19.5 and song.charts["EXH"].level == "17.5"
+    assert song.charts["NOV"].num == 7 and song.charts["MXM"].current == 1
+    ctx = Ctx(uid="10002", private=True, admin=False, name="Kc")
+    r = run(sb.handle(ctx, "sdvx", "录", "lantana mxm 9,800,000 exc"))
+    assert "Lantana" in r.texts[0] and "907125:MXM" in sb.store.scores("10002", "sdvx")
+    assert any(row.title == "Lantana" and row.vf > 0 for row in K.sdvx_rows(sb.cat("sdvx"), sb.store.scores("10002", "sdvx")))
+    assert sb.supplement_sdvx() == 1                              # 再跑一次不会重复加
+    assert len(sb.cat("sdvx")) == base + 1
+
+    # Tachi 收了 Lantana（正式键 2500）→ 补的那首去掉，成绩挪到 2500:MXM
+    data = dict(cat.data)
+    data["songs"] = [s for s in data["songs"] if s["k"] != "907125"] + [
+        {"k": "2500", "t": "Lantana", "a": raw["artist"], "v": "nabla", "c": [{"d": "MXM", "l": "19.5", "n": 19.5, "x": 1}]}]
+    data.pop("extra", None)
+    sb.cats["sdvx"] = C.Catalog(data)
+    assert sb.supplement_sdvx() == 0
+    book = sb.store.scores("10002", "sdvx")
+    assert "907125:MXM" not in book and book["2500:MXM"]["s"] == 9_800_000
+    sb.store._cache.clear()
+    assert sb.store.scores("10002", "sdvx")["2500:MXM"]["l"] == "EXC"      # 写回磁盘了
