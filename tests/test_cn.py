@@ -363,7 +363,7 @@ async def test_plugin_cn_update_and_accounts(mai_env, chu_env, tmp_path):
     import importlib
     import sys
     import types
-    pytest.importorskip("astrbot")                      # 没装 AstrBot 的环境跳过（其余测试不受影响）
+    pytest.importorskip("astrbot.api.event")                      # 没装 AstrBot 的环境跳过（其余测试不受影响）
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if os.path.dirname(root) not in sys.path:
         sys.path.insert(0, os.path.dirname(root))
@@ -401,3 +401,28 @@ async def test_plugin_cn_update_and_accounts(mai_env, chu_env, tmp_path):
     # /查分 更新记录
     r = await p._core(None, ctx, "更新记录")
     assert r.texts[0].startswith("更新记录") and p.VERSION in r.texts[0]
+
+
+def test_redactors_hook_astrbot_logger():
+    """打码挂在 AstrBot 的 logger 和它的 handler 上（插件代码里不碰 logging 模块）。"""
+    import logging
+
+    from astrbot.api import logger
+    from chuni import redact as chu_redact
+    from mai.bot.guard import REDACTOR, install_redactor
+    h = logging.StreamHandler()
+    logger.addHandler(h)
+    try:
+        install_redactor()
+        assert REDACTOR in logger.filters and REDACTOR in h.filters
+        assert chu_redact.install() >= 1
+        clal = "a1" * 32
+        rec = logging.LogRecord("astrbot", logging.INFO, __file__, 1, f"clal={clal}", None, None)
+        for f in h.filters:
+            f.filter(rec)
+        assert clal not in rec.getMessage()
+        chu_redact.uninstall()
+        assert not any(getattr(f, "_chuni_intl_redact", False) for f in h.filters)
+    finally:
+        logger.removeHandler(h)
+        logger.removeFilter(REDACTOR)

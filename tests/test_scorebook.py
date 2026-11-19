@@ -687,3 +687,100 @@ def test_sdvx_new_songs_from_sdvxin(tmp_path):
     assert "907125:MXM" not in book and book["2500:MXM"]["s"] == 9_800_000
     sb.store._cache.clear()
     assert sb.store.scores("10002", "sdvx")["2500:MXM"]["l"] == "EXC"      # 写回磁盘了
+
+
+# ---------- SDVX 名片：六维雷达 + 领航员 ----------
+def test_sdvx_radar_and_navigator(tmp_path):
+    from io import BytesIO
+    from pathlib import Path
+
+    from PIL import Image
+
+    from scorebook.sdvx_img import render
+    sb = ScoreBook(str(tmp_path))
+    ctx = Ctx(uid="10003", private=True, admin=False)
+    assert "顺时针" in run(sb.handle(ctx, "sdvx", "雷达", "")).texts[0]
+    assert "要 6 个数（你写了 3 个）" in run(sb.handle(ctx, "sdvx", "雷达", "1 2 3")).texts[0]
+    r = run(sb.handle(ctx, "sdvx", "雷达", "152.3, 140.1 98 120.5 60 75"))
+    assert "NOTES 152.3" in r.texts[0] and "ONE-HAND 75" in r.texts[0]
+    assert sb.store.profile("10003")["radar"] == [152.3, 140.1, 98.0, 120.5, 60.0, 75.0]
+    assert run(sb.handle(ctx, "geki", "雷达", "1 2 3 4 5 6")) is None          # 只有 SDVX 有
+
+    # 领航员：图从消息里来（这里用本地文件）
+    buf = BytesIO()
+    Image.new("RGB", (600, 900), (40, 60, 120)).save(buf, "JPEG")
+    src = tmp_path / "nav.jpg"
+    src.write_bytes(buf.getvalue())
+    assert "带一张图" in run(sb.handle(ctx, "sdvx", "领航员", "")).texts[0]
+    r = run(sb.handle(Ctx(uid="10003", private=True, admin=False, images=[str(src)]), "sdvx", "领航员", "テスト"))
+    assert "换好了（テスト）" in r.texts[0]
+    p = sb.store.nav_path("10003")
+    with Image.open(p) as im:
+        assert im.format == "PNG" and max(im.size) <= 1400
+    bad = tmp_path / "bad.jpg"
+    bad.write_bytes(b"not an image")
+    assert "用不了" in run(sb.handle(Ctx(uid="10003", private=True, admin=False, images=[str(bad)]),
+                                       "sdvx", "领航员", "")).texts[0]
+
+    sd = sb.cat("sdvx")
+    keys = [k for k, c in sd.charts.items() if c.current == 1 and c.num >= 17][:12]
+    rows = K.sdvx_rows(sd, {k: {"s": 9_900_000, "l": "EXC"} for k in keys})
+    prof = sb.store.profile("10003")
+    plain = render(rows, Path(tmp_path) / "a.jpg", player="Kc")
+    full = render(rows, Path(tmp_path) / "b.jpg", player="Kc", radar=prof["radar"], nav=p, nav_name=prof["nav"])
+    with Image.open(plain) as a, Image.open(full) as b:
+        assert b.height == a.height + 330                       # 多一条名片
+    only_nav = render(rows, Path(tmp_path) / "c.jpg", player="Kc", nav=p)
+    with Image.open(only_nav) as c:
+        assert c.height == a.height + 330
+
+    assert "删掉" in run(sb.handle(ctx, "sdvx", "领航员", "清除")).texts[0]
+    assert not os.path.exists(p) and "nav" not in sb.store.profile("10003")
+    run(sb.handle(ctx, "sdvx", "雷达", "清除"))
+    assert sb.store.profile("10003") == {}
+
+
+def test_web_sdvx_profile(tmp_path):
+    """传分网站上也能填六维图、传领航员图（走整个服务，图比 16 KB 上限大）。"""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+
+    from core.bindweb import BindWeb
+    sb = ScoreBook(str(tmp_path))
+    bw = BindWeb(binder=None, extra=[ScoreWeb(sb)])
+    buf = BytesIO()
+    Image.effect_noise((900, 1200), 80).convert("RGB").save(buf, "JPEG", quality=95)
+    assert buf.tell() > 100_000
+    data = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    H = {"X-SB": "1"}
+
+    async def flow():
+        async with TestClient(TestServer(bw.app())) as c:
+            assert (await c.get("/api/sb/profile")).status == 401
+            assert (await c.post("/api/sb/radar", json={"radar": [1] * 6}, headers=H)).status == 401
+            tok = sb.sessions.issue_login("10001", "Kc", "sdvx")
+            assert (await (await c.post("/api/sb/login", json={"t": tok}, headers=H)).json())["ok"]
+            p = await (await c.get("/api/sb/profile")).json()
+            assert p["radar"] is None and p["img"] == 0
+            assert (await c.post("/api/sb/radar", json={"radar": [1, 2]}, headers=H)).status == 400
+            assert (await c.post("/api/sb/radar", json={"radar": [1, 2, 3, 4, 5, 99999]}, headers=H)).status == 400
+            r = await (await c.post("/api/sb/radar", json={"radar": [80, 70.123, 60, 50, 40, 30]}, headers=H)).json()
+            assert r["ok"] and r["radar"] == [80, 70.12, 60, 50, 40, 30]
+            assert sb.store.profile("10001")["radar"][1] == 70.12           # 和 QQ 里存的是同一份
+            assert (await c.get("/api/sb/nav.png")).status == 404
+            r = await (await c.post("/api/sb/nav", json={"img": data, "name": "  レイシス  "}, headers=H)).json()
+            assert r["ok"] and r["img"] > 0 and r["nav"] == "レイシス"
+            img = await c.get("/api/sb/nav.png")
+            assert img.status == 200 and (await img.read())[:4] == b"\x89PNG"
+            r = await (await c.post("/api/sb/nav", json={"img": "data:image/png;base64,AAAA"}, headers=H)).json()
+            assert not r["ok"] and "不是图片" in r["message"]
+            r = await (await c.post("/api/sb/nav", json={"name": "ツマブキ"}, headers=H)).json()
+            assert r["ok"] and r["nav"] == "ツマブキ" and r["img"] > 0
+            r = await (await c.post("/api/sb/radar", json={"radar": None}, headers=H)).json()
+            assert r["ok"] and r["radar"] is None
+            r = await (await c.post("/api/sb/nav", json={"clear": True}, headers=H)).json()
+            assert r["ok"] and r["img"] == 0 and r["nav"] == ""
+            assert not os.path.exists(sb.store.nav_path("10001"))
+    run(flow())

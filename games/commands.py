@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import logging
 import random
 import time
 import re
@@ -19,7 +18,7 @@ try:
 except ImportError:  # tests import packages top-level
     from mai.bot.commands import Reply
 
-log = logging.getLogger("astrbot")
+from astrbot.api import logger as log  # noqa: E402
 
 START = {
     "猜歌": "letters", "开字母": "letters", "猜歌名": "letters", "开字母猜歌": "letters",

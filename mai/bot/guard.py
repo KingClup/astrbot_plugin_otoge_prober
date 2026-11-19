@@ -1,7 +1,6 @@
 """Credential safety: binding conversation state, secret detection and log redaction."""
 from __future__ import annotations
 
-import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -77,11 +76,12 @@ def looks_like_clal(text: str) -> bool:
     return bool(CLAL_RE.search(text or ""))
 
 
-class Redactor(logging.Filter):
-    """Masks clal-shaped tokens and any password currently in a binding flow."""
+class Redactor:
+    """Masks clal-shaped tokens and any password currently in a binding flow.
+
+    A plain object with a ``filter(record)`` method — AstrBot's logger accepts it as a log filter."""
 
     def __init__(self):
-        super().__init__()
         self._secrets: set[str] = set()
 
     def remember(self, s: str) -> None:
@@ -99,7 +99,7 @@ class Redactor(logging.Filter):
             text = text.replace(s, "<secret>")
         return text
 
-    def filter(self, record: logging.LogRecord) -> bool:
+    def filter(self, record) -> bool:
         try:
             msg = record.getMessage()
         except Exception:
@@ -122,11 +122,12 @@ def _mask_lx(m: re.Match) -> str:
 REDACTOR = Redactor()
 
 
-def install_redactor(names=("astrbot", "")) -> None:
-    for name in names:
-        lg = logging.getLogger(name)
-        if REDACTOR not in lg.filters:
-            lg.addFilter(REDACTOR)
-        for h in lg.handlers:
-            if REDACTOR not in h.filters:
-                h.addFilter(REDACTOR)
+def install_redactor(lg=None) -> None:
+    """Hook onto AstrBot's logger (from astrbot.api) and its handlers (console / file / WebUI live log)."""
+    if lg is None:
+        from astrbot.api import logger as lg
+    if REDACTOR not in lg.filters:
+        lg.addFilter(REDACTOR)
+    for h in getattr(lg, "handlers", ()):
+        if REDACTOR not in h.filters:
+            h.addFilter(REDACTOR)

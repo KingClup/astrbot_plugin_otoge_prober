@@ -6,12 +6,11 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import httpx
 
-log = logging.getLogger("chuni_intl.fonts")
+from astrbot.api import logger as log  # noqa: E402
 
 FONT_NAME = "NotoSansCJKsc-Bold.otf"
 FONT_URLS = (

@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import time
 from pathlib import Path
 
 import httpx
 
-log = logging.getLogger("chuni_intl.jackets")
+from astrbot.api import logger as log  # noqa: E402
 
 MUSIC_JSON = "https://chunithm.sega.jp/storage/json/music.json"
 JACKET_BASES = (

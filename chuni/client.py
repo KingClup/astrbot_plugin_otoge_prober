@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
 import httpx
@@ -20,7 +19,7 @@ from selectolax.lexbor import LexborHTMLParser
 from . import parser as P
 from .models import Difficulty, Profile, RecentScore, Score
 
-log = logging.getLogger("chuni_intl.client")
+from astrbot.api import logger as log  # noqa: E402
 
 BASE = "https://chunithm-net-eng.com"
 AIME_HOST = "lng-tgk-aime-gw.am-all.net"

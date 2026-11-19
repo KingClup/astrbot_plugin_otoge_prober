@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import tempfile
 import time
@@ -29,7 +28,7 @@ except ImportError:  # tests import packages top-level
     from core.privsrv.servers import ALIASES, NAMES, parse_username
     from mai.bot.commands import Ctx, Reply
 
-log = logging.getLogger("astrbot")
+from astrbot.api import logger as log  # noqa: E402
 
 CONSTS = os.path.join(os.path.dirname(__file__), "data", "ongeki_consts.json")
 CHART_SUBS = ("谱面", "谱", "谱面确认", "chart", "查谱", "谱面图", "加别名", "添加别名")

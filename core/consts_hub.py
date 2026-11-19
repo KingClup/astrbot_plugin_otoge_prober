@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import re
 import time
@@ -27,7 +26,7 @@ from typing import Callable
 
 import httpx
 
-log = logging.getLogger("astrbot")
+from astrbot.api import logger as log  # noqa: E402
 
 
 def norm_title(t: str) -> str:

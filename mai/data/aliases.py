@@ -16,14 +16,13 @@ from __future__ import annotations
 import asyncio
 import gzip
 import json
-import logging
 import os
 import time
 from pathlib import Path
 
 import httpx
 
-log = logging.getLogger("astrbot")
+from astrbot.api import logger as log  # noqa: E402
 
 SOURCES = {
     "mai": {"lxns": "https://maimai.lxns.net/api/v0/maimai/alias/list",

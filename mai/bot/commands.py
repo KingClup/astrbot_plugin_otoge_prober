@@ -84,6 +84,7 @@ class Ctx:
     at_uid: str | None = None
     name: str = ""          # 发消息时显示的名字（群里是群名片）
     nick: str = ""          # QQ 昵称（不是群名片）；取不到就是空
+    images: list = field(default_factory=list)   # 这条消息里带的图片（url 或本地路径）
 
 
 def split_args(args: list[str]) -> tuple[str | None, list[str]]:
@@ -818,8 +819,8 @@ class Commands:
                 cache.put(key[0], img, *key[1:])
             return img
         except Exception as e:  # pragma: no cover - fall back to text
-            import logging
-            logging.getLogger("astrbot").warning(f"[mai] card render failed: {type(e).__name__}: {e}")
+            from astrbot.api import logger
+            logger.warning(f"[mai] card render failed: {type(e).__name__}: {e}")
             return None
 
     async def c_ds(self, ctx, rest):

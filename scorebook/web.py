@@ -37,6 +37,7 @@ class ScoreWeb:
         self.user_alias = RateLimit(20, 3600)
         self.user_batch = RateLimit(60, 3600)
         self.ip_jk = RateLimit(1200, 60)
+        self.user_nav = RateLimit(20, 3600)
         self._payload: dict[str, tuple[int, bytes]] = {}
         self.bind = None                       # 同一个服务上的网页绑定（BindWeb）：绑定页上直接进传分网站用
 
@@ -65,6 +66,10 @@ class ScoreWeb:
         r.add_post("/api/sb/batch", self.api_batch)
         r.add_post("/api/sb/batch_apply", self.api_batch_apply)
         r.add_post("/api/sb/from_bind", self.api_from_bind)
+        r.add_get("/api/sb/profile", self.api_profile)
+        r.add_post("/api/sb/radar", self.api_radar)
+        r.add_post("/api/sb/nav", self.api_nav)
+        r.add_get("/api/sb/nav.png", self.api_nav_img)
 
     # ---------- 工具 ----------
     @staticmethod
@@ -471,6 +476,96 @@ class ScoreWeb:
         data = ("﻿" + buf.getvalue()).encode("utf-8")
         return web.Response(body=data, content_type="text/csv", charset="utf-8",
                             headers={"Content-Disposition": f'attachment; filename="{g}_scores.csv"'})
+
+    # ---------- SDVX 名片：六维图 + 领航员（和 QQ 里 /sdvx 雷达、/sdvx 领航员 存的是同一份） ----------
+    def _profile_out(self, uid: str) -> dict:
+        p = self.book.store.profile(uid)
+        has = bool(p.get("nav_img")) and os.path.exists(self.book.store.nav_path(uid))
+        return {"radar": p.get("radar"), "nav": p.get("nav") or "", "img": int(p.get("nav_img") or 0) if has else 0}
+
+    async def api_profile(self, request):
+        if not self.ip_api.allow(self._ip(request)):
+            return self._json({"error": "请求太频繁"}, 429)
+        u = self._user(request)
+        if u is None:
+            return self._json({"error": "login"}, 401)
+        return self._json({"ok": True, **self._profile_out(u["uid"])})
+
+    async def api_radar(self, request):
+        if not self.ip_api.allow(self._ip(request)):
+            return self._json({"ok": False, "message": "太频繁了"}, 429)
+        u = self._user(request)
+        if u is None:
+            return self._json({"ok": False, "message": "登传过期了，回 QQ 发「/传分」重新登录"}, 401)
+        if not self.user_write.allow(u["uid"]):
+            return self._json({"ok": False, "message": "改得太快了，歇一下"}, 429)
+        b = await self._body(request)
+        if b is None:
+            return self._json({"ok": False, "message": "bad request"}, 400)
+        vals = b.get("radar")
+        if vals is None:
+            self.book.store.set_profile(u["uid"], radar=None)
+        else:
+            try:
+                if not isinstance(vals, list) or len(vals) != 6:
+                    raise ValueError
+                vals = [round(float(v), 2) for v in vals]
+            except (TypeError, ValueError):
+                return self._json({"ok": False, "message": "要 6 个数"}, 400)
+            if any(not (0 <= v <= 9999) for v in vals):
+                return self._json({"ok": False, "message": "每项要在 0～9999 之间"}, 400)
+            self.book.store.set_profile(u["uid"], radar=vals)
+        return self._json({"ok": True, **self._profile_out(u["uid"])})
+
+    async def api_nav(self, request):
+        """领航员：{name} 改名字；{img: dataURL / base64} 换图；{clear: true} 全删。图在浏览器里先缩过，这里再转一遍 PNG。"""
+        import asyncio
+        import base64
+        from .service import save_nav_image
+        if not self.ip_api.allow(self._ip(request)):
+            return self._json({"ok": False, "message": "太频繁了"}, 429)
+        u = self._user(request)
+        if u is None:
+            return self._json({"ok": False, "message": "登传过期了，回 QQ 发「/传分」重新登录"}, 401)
+        b = await self._body_big(request, 8 * 1024 * 1024)
+        if b is None:
+            return self._json({"ok": False, "message": "图太大了（最多 6 MB 左右）"}, 400)
+        uid, store = u["uid"], self.book.store
+        path = store.nav_path(uid)
+        if b.get("clear"):
+            store.set_profile(uid, nav=None, nav_img=None)
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return self._json({"ok": True, **self._profile_out(uid)})
+        if "name" in b:
+            name = re.sub(r"\s+", " ", str(b.get("name") or "")).strip()[:24]
+            store.set_profile(uid, nav=name or None)
+        img = b.get("img")
+        if img:
+            if not self.user_nav.allow(uid):
+                return self._json({"ok": False, "message": "一小时最多换 20 次图"}, 429)
+            try:
+                raw = base64.b64decode(str(img).split(",", 1)[-1], validate=False)
+                await asyncio.to_thread(save_nav_image, raw, path)
+            except ValueError as e:
+                return self._json({"ok": False, "message": f"这张图用不了：{e}"}, 400)
+            except Exception as e:  # noqa: BLE001
+                self.log(f"[otoge] nav upload failed: {type(e).__name__}: {e}")
+                return self._json({"ok": False, "message": "图片没存上，换一张试试"}, 500)
+            store.set_profile(uid, nav_img=int(time.time()))
+        return self._json({"ok": True, **self._profile_out(uid)})
+
+    async def api_nav_img(self, request):
+        from aiohttp import web
+        u = self._user(request)
+        if u is None:
+            return web.Response(status=404)
+        p = self.book.store.nav_path(u["uid"])
+        if not os.path.exists(p):
+            return web.Response(status=404)
+        return web.FileResponse(p, headers={"Cache-Control": "private, max-age=86400", "Content-Type": "image/png"})
 
 
 def _esc(s: str) -> str:

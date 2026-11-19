@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
-import logging
 import os
 import re
 import time
@@ -24,7 +23,7 @@ from dataclasses import asdict, dataclass, field
 
 import httpx
 
-log = logging.getLogger("astrbot")
+from astrbot.api import logger as log  # noqa: E402
 
 OFFICIAL = {
     ("mai", "jp"): "https://maimai.sega.jp/data/maimai_songs.json",

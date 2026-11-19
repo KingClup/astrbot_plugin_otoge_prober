@@ -224,7 +224,7 @@ def test_scores_hero_big_and_compact():
     assert "min-height: 150px" in css and "body.compact .herobox" in css and "body.compact .hero-girl" in css
     assert 'class: "hn none"' in js and '"还没传"' in js
     assert 'classList.toggle("compact"' in js and "ResizeObserver" in js
-    assert "app.css?v=2405" in html and "app.js?v=2405" in html
+    assert "app.css?v=2555" in html and "app.js?v=2555" in html
 
 
 def test_help_image_bind_style_and_poses(tmp_path, monkeypatch):

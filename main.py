@@ -76,7 +76,7 @@ from .core.privsrv import Hub as PrivHub, NAMES as PRIV_NAMES  # noqa: E402
 from .core.privsrv.servers import rom_label  # noqa: E402
 
 PLUGIN = "astrbot_plugin_otoge_prober"
-VERSION = "2.5.4"
+VERSION = "2.5.6"
 MAI_NAMES = ("mai", "maimai", "舞萌")
 CHU_NAMES = ("chu", "chuni", "中二")
 CORE_NAMES = ("查分", "score", "otoge")
@@ -785,8 +785,14 @@ class OtogeScore(Star):
         for comp in event.get_messages():
             if isinstance(comp, Comp.At) and str(comp.qq) != str(event.get_self_id()):
                 at = str(comp.qq)
+        imgs = []
+        for comp in event.get_messages():
+            if isinstance(comp, Comp.Image):
+                src = getattr(comp, "url", None) or getattr(comp, "file", None)
+                if src:
+                    imgs.append(str(src))
         return Ctx(uid=str(event.get_sender_id()), private=event.is_private_chat(), admin=event.is_admin(),
-                   at_uid=at, name=event.get_sender_name(), nick=self._qq_nick(event))
+                   at_uid=at, name=event.get_sender_name(), nick=self._qq_nick(event), images=imgs)
 
     @staticmethod
     def _qq_nick(event: AstrMessageEvent) -> str:

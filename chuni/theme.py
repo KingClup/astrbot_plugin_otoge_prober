@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import base64
 import io
-import logging
 import re
 from pathlib import Path
 from urllib.parse import urljoin
@@ -20,7 +19,7 @@ from urllib.parse import urljoin
 import httpx
 from PIL import Image
 
-log = logging.getLogger("chuni_intl.theme")
+from astrbot.api import logger as log  # noqa: E402
 
 LOGO_PAGES = ("https://chunithm.sega.com/", "https://info-chunithm.sega.com/", "https://chunithm.sega.jp/")
 _IMG_RE = re.compile(r"""<img[^>]+src=["']([^"']+)["']""", re.I)

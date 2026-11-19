@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-import logging
 
 from .sdvxin import DIFF_WORDS, DIFFS, GAME_LABEL, Entry, SdvxIn
 
@@ -18,7 +17,7 @@ except ImportError:  # tests import packages top-level
     from mai.bot.commands import Ctx, Reply
     from mai.data.fuzzy import decide
 
-log = logging.getLogger("astrbot")
+from astrbot.api import logger as log  # noqa: E402
 
 CMD = {"chu": "/chu 谱面", "sdvx": "/sdvx 谱面", "pjsk": "/pjsk 谱面", "geki": "/geki 谱面"}
 SUB_CHART = ("谱面", "谱", "谱面确认", "chart", "查谱", "谱面图")

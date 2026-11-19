@@ -215,6 +215,31 @@ class ScoreStore:
                 self.user(uid)["name"] = name[:40]
                 self._save(uid)
 
+    # ---------- SDVX 名片：六维雷达 + 领航员 ----------
+    def profile(self, uid: str) -> dict:
+        return dict(self.user(uid).get("sdvx_profile") or {})
+
+    def set_profile(self, uid: str, **kw) -> dict:
+        """radar=[6 个数] / nav=领航员名字；值是 None 就删掉那一项。"""
+        with self._lock:
+            u = self.user(uid)
+            p = dict(u.get("sdvx_profile") or {})
+            for k, v in kw.items():
+                if v is None:
+                    p.pop(k, None)
+                else:
+                    p[k] = v
+            if p:
+                u["sdvx_profile"] = p
+            else:
+                u.pop("sdvx_profile", None)
+            self._save(uid)
+            return dict(p)
+
+    def nav_path(self, uid: str) -> str:
+        """领航员图存在 scorebook/nav/<QQ>.png（用户自己传的，不进公开仓库）。"""
+        return os.path.join(os.path.dirname(self.dir), "nav", f"{uid}.png")
+
     def uids(self) -> list[str]:
         try:
             names = os.listdir(self.dir)

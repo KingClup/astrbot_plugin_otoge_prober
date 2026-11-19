@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 import time
 import unicodedata
@@ -24,7 +23,7 @@ except ImportError:  # tests import the subpackages top-level
     from mai.data.fuzzy import FuzzyIndex, Match
 from .models import Difficulty
 
-log = logging.getLogger("chuni_intl.songdb")
+from astrbot.api import logger as log  # noqa: E402
 
 TACHI_CHARTS = "https://raw.githubusercontent.com/zkldi/Tachi/refs/heads/main/db/seeds/charts-chunithm.json"
 TACHI_SONGS = "https://raw.githubusercontent.com/zkldi/Tachi/refs/heads/main/db/seeds/songs-chunithm.json"

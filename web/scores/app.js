@@ -691,12 +691,144 @@
           h("div", { text: c.song.t }), h("div", null, c.d + (rec ? " · " : ""), rec ? scoreEl(g, rec.s) : null));
       })));
   }
+
+  // ---------- SDVX 名片：六维图 + 领航员（和 QQ 里 /sdvx 雷达、/sdvx 领航员 是同一份） ----------
+  const RADAR_AXES = ["NOTES", "PEAK", "TSUMAMI", "TRICKY", "HAND-TRIP", "ONE-HAND"];
+  const RADAR_COLORS = ["#50e2ec", "#ff5468", "#ff78c8", "#f2dc40", "#b270ff", "#70e870"];
+  function svgEl(tag, attrs, text) {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => el.setAttribute(k, String(v)));
+    if (text) el.textContent = text;
+    return el;
+  }
+  function radarSvg(vals) {
+    const has = vals && vals.some((v) => v > 0);
+    const mx = has ? Math.max(...vals) : 0;
+    const scale = mx <= 100 ? 100 : Math.ceil(mx / 50) * 50;
+    const cx = 160, cy = 122, r = 84;
+    const pt = (k, f) => { const a = -Math.PI / 2 + k * Math.PI / 3; return [cx + Math.cos(a) * r * f, cy + Math.sin(a) * r * f]; };
+    const poly = (f) => [0, 1, 2, 3, 4, 5].map((k) => pt(k, typeof f === "function" ? f(k) : f).map((n) => n.toFixed(1)).join(",")).join(" ");
+    const svg = svgEl("svg", { viewBox: "0 0 320 244", class: "radar-svg", role: "img", "aria-label": "六维图" });
+    [1, 0.75, 0.5, 0.25].forEach((f) => svg.append(svgEl("polygon", { points: poly(f), class: "rg" })));
+    for (let k = 0; k < 6; k++) { const [x, y] = pt(k, 1); svg.append(svgEl("line", { x1: cx, y1: cy, x2: x.toFixed(1), y2: y.toFixed(1), class: "rg" })); }
+    if (has) svg.append(svgEl("polygon", { points: poly((k) => Math.min(1, Math.max(0, (vals[k] || 0) / scale))), class: "rf" }));
+    const anc = ["middle", "start", "start", "middle", "end", "end"];
+    for (let k = 0; k < 6; k++) {
+      const [x, y] = pt(k, 1.13);
+      svg.append(svgEl("text", { x: x.toFixed(1), y: (y + (k === 0 ? -2 : k === 3 ? 10 : 4)).toFixed(1), "text-anchor": anc[k], fill: RADAR_COLORS[k], class: "rl" }, RADAR_AXES[k]));
+    }
+    return svg;
+  }
+  function shrinkImage(file) {                            // 手机原图十几 MB：先在浏览器里缩到长边 1400 再传
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const im = new Image();
+      im.onload = () => {
+        const k = Math.min(1, 1400 / Math.max(im.naturalWidth, im.naturalHeight));
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(im.naturalWidth * k)); c.height = Math.max(1, Math.round(im.naturalHeight * k));
+        c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL(file.type === "image/png" ? "image/png" : "image/jpeg", 0.92));
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); reject(new Error("decode")); };
+      im.src = url;
+    });
+  }
+  async function loadProfile() {
+    const r = await api("/api/sb/profile");
+    S.profile = r.ok ? r : { radar: null, nav: "", img: 0 };
+  }
+  function profilePanel() {
+    const box = h("section", { class: "panel prof" });
+    if (!S.profile) { box.append(h("h2", { text: "B50 名片" }), h("div", { class: "old", text: "读取中…" })); loadProfile().then(() => box.replaceWith(profilePanel())); return box; }
+    const P = S.profile;
+    // 六维图
+    const svgBox = h("div", { class: "radar-box" });
+    const inputs = RADAR_AXES.map((a, k) => {
+      const i = h("input", { type: "number", inputmode: "decimal", min: "0", max: "9999", step: "0.01", class: "small-in", placeholder: "0", "aria-label": a });
+      if (P.radar) i.value = P.radar[k];
+      i.addEventListener("input", draw);
+      return i;
+    });
+    function cur() { return inputs.map((i) => parseFloat(i.value) || 0); }
+    function draw() { svgBox.replaceChildren(radarSvg(cur())); }
+    draw();
+    const rMsg = h("span", { class: "hint" });
+    async function saveRadar(clear) {
+      const vals = cur();
+      if (!clear && !vals.some((v) => v > 0)) { rMsg.textContent = "先填几个数"; return; }
+      const r = await api("/api/sb/radar", { radar: clear ? null : vals });
+      if (!r.ok) { toast(r.message || "没存上"); return; }
+      S.profile = r;
+      if (clear) inputs.forEach((i) => (i.value = ""));
+      draw();
+      toast(clear ? "六维图删掉了" : "六维图存好了，QQ 里发 /sdvx b50 看看", !clear);
+    }
+    const radarSec = h("div", { class: "prof-col" },
+      h("h3", { text: "六维图" }),
+      h("div", { class: "radar-wrap" }, svgBox,
+        h("div", { class: "radar-in" }, RADAR_AXES.map((a, k) => { const l = h("label", null, h("i", null), a, inputs[k]); l.firstChild.style.background = RADAR_COLORS[k]; return l; }))),
+      h("div", { class: "old", text: "照游戏里个人卡上的六维图填，从 NOTES 开始顺时针。卡上没标数字就照形状估个 0～100。" }),
+      h("div", { class: "row tight" },
+        h("button", { type: "button", class: "primary", text: "保存六维图", onclick: () => saveRadar(false) }),
+        P.radar ? h("button", { type: "button", class: "ghost", text: "删掉", onclick: () => saveRadar(true) }) : null, rMsg));
+    // 领航员
+    const pic = h("div", { class: "nav-pic" + (P.img ? "" : " empty") });
+    if (P.img) pic.append(h("img", { src: "/api/sb/nav.png?v=" + P.img, alt: "领航员" }));
+    else pic.append(h("span", { text: "还没有领航员图" }));
+    const nameIn = h("input", { type: "text", maxlength: "24", class: "small-in", placeholder: "名字（可不填）", value: P.nav || "" });
+    const file = h("input", { type: "file", accept: "image/*", hidden: true });
+    let busy = false;
+    file.addEventListener("change", async () => {
+      const f = file.files && file.files[0];
+      file.value = "";
+      if (!f || busy) return;
+      busy = true; toast("正在上传…");
+      try {
+        let data;
+        try { data = await shrinkImage(f); } catch (e) { toast("这个格式浏览器读不了，换成 JPG / PNG 再试"); return; }
+        if (data.length > 7.5 * 1024 * 1024) { toast("图太大了"); return; }
+        const r = await api("/api/sb/nav", { img: data, name: nameIn.value });
+        if (!r.ok) { toast(r.message || "没传上"); return; }
+        S.profile = r; box.replaceWith(profilePanel());
+        toast("领航员图换好了，QQ 里发 /sdvx b50 看看", true);
+      } finally { busy = false; }
+    });
+    async function saveName() {
+      const r = await api("/api/sb/nav", { name: nameIn.value });
+      if (!r.ok) { toast(r.message || "没存上"); return; }
+      S.profile = r; toast("名字存好了");
+    }
+    async function clearNav() {
+      if (!confirm("把领航员图和名字都删掉？")) return;
+      const r = await api("/api/sb/nav", { clear: true });
+      if (!r.ok) { toast(r.message || "没删掉"); return; }
+      S.profile = r; box.replaceWith(profilePanel()); toast("领航员删掉了");
+    }
+    const navSec = h("div", { class: "prof-col" },
+      h("h3", { text: "领航员" }),
+      pic,
+      h("div", { class: "old", text: "框里就是 B50 上会露出来的部分（宽条、偏上取）。最好先把照片裁到只剩领航员。图只用在你自己的 B50 上。" }),
+      h("div", { class: "row tight" },
+        h("label", { class: "primary filebtn" }, P.img ? "换一张图" : "选一张图", file),
+        nameIn,
+        h("button", { type: "button", class: "ghost", text: "存名字", onclick: saveName }),
+        (P.img || P.nav) ? h("button", { type: "button", class: "ghost", text: "删掉", onclick: clearNav }) : null));
+    box.append(h("h2", null, "B50 名片", h("small", { text: "六维图和领航员会画在 /sdvx b50 的页头下面" })),
+      h("div", { class: "prof-grid" }, radarSec, navSec));
+    return box;
+  }
   function renderMine() {
     const body = $("mineBody"), g = S.game;
     body.replaceChildren();
     if (!S.me || !S.me.login) { body.append(h("section", { class: "panel" }, "登录以后这里显示你的成绩。回 QQ 发 /传分 拿登录链接。")); return; }
     const sm = S.summary[g];
-    if (!sm || !sm.count) { body.append(h("section", { class: "panel" }, "还没传过成绩。去「找歌传分」找到歌，点难度就能传。")); return; }
+    if (!sm || !sm.count) {
+      body.append(h("section", { class: "panel" }, "还没传过成绩。去「找歌传分」找到歌，点难度就能传。"));
+      if (g === "sdvx") body.append(profilePanel());
+      return;
+    }
     const exp = h("a", { href: "/api/sb/export?game=" + g, text: "导出 CSV" });
     if (g === "sdvx") {
       const vals = sm.b50.map((k) => sm.vf[k] || 0);
@@ -711,6 +843,7 @@
           stat("第 50 名", sm.floor ? fs(sm.floor) : "还没满 50"),
           stat("PUC / UC", (lamps.PUC || 0) + " / " + (lamps.UC || 0))),
         h("div", { class: "old", text: "按 ∇ 规则算：每首显示的是单曲 VF ×50（等级 × 分数 × 评级 × 灯），最高 50 张的平均就是 VOLFORCE。QQ 里发 /sdvx b50 出图。" })));
+      body.append(profilePanel());
       body.append(h("section", { class: "panel" }, h("h2", null, "VF 50", h("small", { text: sm.b50.length + " 张" })),
         h("ol", { class: "rank" }, sm.b50.map((k, i) => rankRow(g, k, i + 1, fs(sm.vf[k] || 0))))));
     } else {

@@ -11,7 +11,7 @@ from mai.bot.commands import Ctx, Reply
 
 
 def _main():
-    pytest.importorskip("astrbot")
+    pytest.importorskip("astrbot.api.event")
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if os.path.dirname(root) not in sys.path:
         sys.path.insert(0, os.path.dirname(root))

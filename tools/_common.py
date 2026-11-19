@@ -7,6 +7,41 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN_DIR))
 
 
+def _astrbot_logger_stub() -> None:
+    """插件模块用 AstrBot 的 logger（from astrbot.api import logger）。脱离 AstrBot 单独跑脚本时给一个打到 stderr 的替身。"""
+    try:
+        import astrbot.api  # noqa: F401
+        return
+    except ImportError:
+        pass
+    import types
+
+    class _Log:
+        filters: list = []
+        handlers: list = []
+
+        def _out(self, level, msg, *args, **_kw):
+            print(f"[{level}] " + (str(msg) % args if args else str(msg)), file=sys.stderr)
+
+        def debug(self, *a, **k): pass
+        def info(self, *a, **k): self._out("INFO", *a, **k)
+        def warning(self, *a, **k): self._out("WARN", *a, **k)
+        def error(self, *a, **k): self._out("ERROR", *a, **k)
+        exception = error
+        def addFilter(self, f): pass
+        def removeFilter(self, f): pass
+
+    pkg = sys.modules.setdefault("astrbot", types.ModuleType("astrbot"))
+    pkg.__path__ = []
+    api = types.ModuleType("astrbot.api")
+    api.logger = _Log()
+    pkg.api = api
+    sys.modules["astrbot.api"] = api
+
+
+_astrbot_logger_stub()
+
+
 def default_data_dir() -> Path:
     """中二部分的数据目录：<AstrBot 数据目录>/plugin_data/astrbot_plugin_otoge_prober/chu"""
     env = os.environ.get("CHUNI_DATA_DIR")

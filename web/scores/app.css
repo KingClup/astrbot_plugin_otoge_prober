@@ -577,3 +577,24 @@ main > section:not([hidden]) { animation: g-fade .28s ease-out both; }
 body.no-hero-girl .herobox { min-height: 96px; padding-right: 14px; }
 @media (min-width: 720px) { body.no-hero-girl .herobox { min-height: 120px; padding-right: 14px; } }
 body.no-hero-girl.compact .herobox { min-height: 0; }
+
+/* SDVX B50 名片 */
+.prof h3 { font-size: 13px; margin: 0 0 6px; color: var(--mute); font-weight: 600; letter-spacing: .04em; }
+.prof-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .prof-grid { grid-template-columns: 1fr; } }
+.radar-wrap { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.radar-box { width: 250px; max-width: 100%; flex: none; margin: 0 auto; }
+.radar-svg { width: 100%; height: auto; display: block; }
+.radar-svg .rg { fill: none; stroke: var(--line); stroke-width: 1; }
+.radar-svg .rf { fill: rgba(255, 112, 24, .78); stroke: #ffb070; stroke-width: 1.5; }
+.radar-svg .rl { font-size: 11px; font-weight: 700; }
+.radar-in { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; flex: 1; min-width: 240px; }
+.radar-in label { display: grid; grid-template-columns: 6px 1fr 72px; gap: 7px; align-items: center; font-size: 12px; }
+.radar-in label i { width: 6px; height: 18px; border-radius: 3px; }
+.radar-in input { width: 100%; padding: 6px 8px; font-size: 15px; }
+.nav-pic { aspect-ratio: 968 / 284; border-radius: 12px; overflow: hidden; background: var(--bg); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center; margin-bottom: 6px; }
+.nav-pic img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 18%; display: block; }
+.nav-pic.empty span { color: var(--mute); font-size: 13px; }
+.prof .row.tight { flex-wrap: wrap; align-items: center; }
+.prof .row.tight .small-in { flex: 1; min-width: 120px; }

@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import re
 import time
@@ -22,7 +21,7 @@ import httpx
 
 from .calc import DIFFS
 
-log = logging.getLogger("astrbot")
+from astrbot.api import logger as log  # noqa: E402
 
 CDN = "https://cdn.jsdelivr.net/gh/DarrenDanielDay/arcaea-toolbelt-data@main/src/data/"
 FILES = ("songlist.json", "ChartConstant.json", "alias.json")

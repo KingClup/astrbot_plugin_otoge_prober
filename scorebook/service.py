@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import re
 import tempfile
@@ -28,7 +27,7 @@ except ImportError:  # tests import packages top-level
     from mai.bot.commands import Ctx, Reply
     from mai.data.fuzzy import decide, fold
 
-log = logging.getLogger("astrbot")
+from astrbot.api import logger as log  # noqa: E402
 
 BUNDLED = os.path.join(os.path.dirname(__file__), "data")
 REFRESH_SECS = 86400
@@ -46,6 +45,11 @@ EAM_LAMP = {"PLAYED": "PLAY", "COMPLETE": "COMP", "EXCESSIVE COMPLETE": "EXC", "
             "ULTIMATE CHAIN": "UC", "PERFECT": "PUC", "PERFECT ULTIMATE CHAIN": "PUC"}
 BATCH_TIP = "（一次传好几首：/{g} 批量传 然后换行一行一首；或者网页上的「批量传分」，还能让别的 AI 看截图帮你写好格式）"
 MINE_WORDS = ("成绩", "我的成绩", "查成绩", "pb", "score")
+RADAR_WORDS = ("雷达", "六维", "六维图", "radar", "雷达图", "能力图")
+NAV_WORDS = ("领航员", "导航员", "navi", "navigator", "ナビ", "ナビゲーター")
+CLEAR_WORDS = ("清除", "删除", "删", "取消", "clear", "reset", "不要了")
+RADAR_AXES = ("NOTES", "PEAK", "TSUMAMI", "TRICKY", "HAND-TRIP", "ONE-HAND")     # 游戏里从上面顺时针
+NAV_MAX_BYTES = 12 * 1024 * 1024
 BEST_WORDS = ("b50", "vf", "volforce", "best", "best50", "ra", "rating", "我", "me", "资料")
 SDVX_DIFF_WORDS = {
     "nov": "NOV", "novice": "NOV", "绿": "NOV", "adv": "ADV", "advanced": "ADV", "黄": "ADV",
@@ -177,6 +181,26 @@ def pick_diff(game: str, song, diff: str | None) -> str:
         elif diff == "4TH":
             diff = "MXM"
     return diff
+
+
+def save_nav_image(raw: bytes, path: str) -> None:
+    """领航员图：转成 PNG、长边缩到 1400，按手机照片的方向转正。不是图片就 ValueError。"""
+    from io import BytesIO
+
+    from PIL import Image, ImageOps
+    try:
+        with Image.open(BytesIO(raw)) as im:
+            im = ImageOps.exif_transpose(im)
+            im = im.convert("RGBA") if im.mode in ("RGBA", "LA", "P") else im.convert("RGB")
+    except Exception as e:  # noqa: BLE001
+        raise ValueError("不是图片") from e
+    if min(im.size) < 64:
+        raise ValueError("太小了")
+    im.thumbnail((1400, 1400), Image.Resampling.LANCZOS)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    im.save(tmp, "PNG", optimize=True)
+    os.replace(tmp, path)
 
 
 class ScoreBook:
@@ -444,7 +468,90 @@ class ScoreBook:
             return self._batch_chat(ctx, game, rest)
         if sub in MINE_WORDS and rest.strip():
             return self._mine(ctx, game, rest.strip())
+        if game == "sdvx" and sub in RADAR_WORDS:
+            return self._radar(ctx, rest.strip())
+        if game == "sdvx" and sub in NAV_WORDS:
+            return await self._nav(ctx, rest.strip())
         return None
+
+    # ---------- SDVX 名片：六维雷达 + 领航员（都是自己填 / 传，游戏数据拿不到） ----------
+    @staticmethod
+    def fmt_radar(v: float) -> str:
+        return str(int(v)) if float(v).is_integer() else f"{v:.2f}".rstrip("0").rstrip(".")
+
+    def _radar(self, ctx: Ctx, rest: str) -> Reply:
+        usage = ("按游戏里个人卡上的六维图填，从 NOTES 开始顺时针：\n"
+                 "/sdvx 雷达 NOTES PEAK TSUMAMI TRICKY HAND-TRIP ONE-HAND\n例：/sdvx 雷达 152.3 140.1 98 120.5 60 75\n"
+                 "游戏卡上没标数字的话，照着形状每项估个 0～100 就行。删掉发「/sdvx 雷达 清除」\n"
+                 "传分网站（/传分）「我的成绩」里也能填，边填边看形状")
+        if rest in CLEAR_WORDS:
+            self.store.set_profile(ctx.uid, radar=None)
+            return Reply().say("六维图删掉了，B50 图上不再画")
+        nums = re.findall(r"\d+(?:\.\d+)?", rest)
+        if not nums:
+            cur = self.store.profile(ctx.uid).get("radar")
+            if cur:
+                now = "、".join(f"{a} {self.fmt_radar(v)}" for a, v in zip(RADAR_AXES, cur))
+                return Reply().say(f"你现在的六维图：{now}\n改的话：\n" + usage)
+            return Reply().say(usage)
+        if len(nums) != 6:
+            return Reply().say(f"要 6 个数（你写了 {len(nums)} 个）。\n" + usage)
+        vals = [round(float(x), 2) for x in nums]
+        if any(v > 9999 for v in vals):
+            return Reply().say("数太大了，检查一下？\n" + usage)
+        self.store.set_profile(ctx.uid, radar=vals)
+        now = "、".join(f"{a} {self.fmt_radar(v)}" for a, v in zip(RADAR_AXES, vals))
+        return Reply().say(f"记下了：{now}\n发 /sdvx b50 看看")
+
+    async def _nav(self, ctx: Ctx, rest: str) -> Reply:
+        usage = ("发「/sdvx 领航员」的时候带一张图（同一条消息里）就设成你的领航员图，B50 上会放出来；"
+                 "后面可以写名字，例：/sdvx 领航员 レイシス\n只改名字：/sdvx 领航员 名字（不带图）；删掉：/sdvx 领航员 清除\n"
+                 "图片是你自己传的，只用在你自己的 B50 上。传分网站（/传分）「我的成绩」里也能传图")
+        path = self.store.nav_path(ctx.uid)
+        if rest in CLEAR_WORDS:
+            self.store.set_profile(ctx.uid, nav=None, nav_img=None)
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return Reply().say("领航员删掉了，B50 图上不再放")
+        name = rest[:24].strip()
+        if ctx.images:
+            try:
+                raw = await self._fetch_image(ctx.images[0])
+                await asyncio.to_thread(save_nav_image, raw, path)
+            except ValueError as e:
+                return Reply().say(f"这张图用不了：{e}")
+            except Exception as e:  # noqa: BLE001
+                log.warning(f"[otoge] navigator image failed: {type(e).__name__}: {e}")
+                return Reply().say("图片没下载下来，换一张或者等会儿再发")
+            self.store.set_profile(ctx.uid, nav_img=int(time.time()), **({"nav": name} if name else {}))
+            return Reply().say(f"领航员图换好了{'（' + name + '）' if name else ''}，发 /sdvx b50 看看")
+        if name:
+            p = self.store.profile(ctx.uid)
+            self.store.set_profile(ctx.uid, nav=name)
+            tail = "" if p.get("nav_img") and os.path.exists(path) else "\n还没有图：再发一次「/sdvx 领航员」并带一张图"
+            return Reply().say(f"领航员名字记成「{name}」{tail}")
+        return Reply().say(usage)
+
+    async def _fetch_image(self, src: str) -> bytes:
+        if os.path.isfile(src):
+            if os.path.getsize(src) > NAV_MAX_BYTES:
+                raise ValueError("太大了（最多 12 MB）")
+            with open(src, "rb") as f:
+                return f.read()
+        if src.startswith("base64://"):
+            import base64
+            return base64.b64decode(src[9:])
+        if not src.startswith(("http://", "https://")):
+            raise ValueError("读不到这张图")
+        import httpx
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as c:
+            r = await c.get(src)
+            r.raise_for_status()
+            if len(r.content) > NAV_MAX_BYTES:
+                raise ValueError("太大了（最多 12 MB）")
+            return r.content
 
     def _record(self, ctx: Ctx, game: str, rest: str) -> Reply:
         words = rest.split()
@@ -784,9 +891,12 @@ class ScoreBook:
         jackets = await self._sdvx_jackets([r.title for r in top])
         all_rows = rows
         out = Path(tempfile.gettempdir()) / f"otoge_sdvx_{time.time_ns()}.jpg"
+        prof = self.store.profile(uid)
+        nav = self.store.nav_path(uid) if prof.get("nav_img") and os.path.exists(self.store.nav_path(uid)) else None
         await asyncio.to_thread(render, top, out, player=name, jackets=jackets, font_path=font_path, tz=tz,
                                 footer_left=f"Generated by {bot_name}", count=len(rows), all_rows=all_rows,
-                                show_ex=self.prefs.show(uid, "sdvx_ex") if self.prefs is not None else True)
+                                show_ex=self.prefs.show(uid, "sdvx_ex") if self.prefs is not None else True,
+                                radar=prof.get("radar"), nav=nav, nav_name=prof.get("nav") or "")
         try:
             return out.read_bytes()
         finally:

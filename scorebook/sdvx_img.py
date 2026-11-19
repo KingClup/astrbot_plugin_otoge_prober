@@ -38,6 +38,10 @@ CARD_H = 200
 CUT = 18                      # 卡片左上 / 右下切掉的角
 JK = 128
 HEADER_H, STATS_H, FOOTER_H = 330, 104, 72
+PROFILE_H = 330                # 名片条（六维图 + 领航员），两样都没填就没有这一条
+RADAR_AXES = ("NOTES", "PEAK", "TSUMAMI", "TRICKY", "HAND-TRIP", "ONE-HAND")
+RADAR_COLORS = ((80, 226, 236), (255, 84, 104), (255, 120, 200), (242, 220, 64), (178, 112, 255), (112, 232, 112))
+RADAR_FILL = (255, 112, 24)
 NEON = (70, 255, 160)
 
 # 段位颜色（主色, 亮色）
@@ -268,8 +272,24 @@ def _jacket(path) -> Image.Image:
     return ph
 
 
-def _avatar(img: Image.Image, cx: int, cy: int, r: int, player: str) -> None:
-    """名牌上的六边形头像位：手动传分没有游戏里的头像，放看板娘（包里没有这张图就写名字的第一个字）。"""
+def _nav_face(nav: str | None, size: int) -> Image.Image | None:
+    """领航员图取上方居中的一块当头像（脸一般在上面）。"""
+    if not nav:
+        return None
+    try:
+        with Image.open(nav) as src:
+            src = src.convert("RGBA")
+            side = int(min(src.width * 0.62, src.height * 0.62))
+            x0 = (src.width - side) // 2
+            y0 = int(src.height * 0.06)
+            y0 = max(0, min(y0, src.height - side))
+            return src.crop((x0, y0, x0 + side, y0 + side)).resize((size, size), Image.Resampling.LANCZOS)
+    except (OSError, ValueError):
+        return None
+
+
+def _avatar(img: Image.Image, cx: int, cy: int, r: int, player: str, nav: str | None = None) -> None:
+    """名牌上的六边形头像位：传了领航员图就放领航员的脸；没有就放看板娘（包里没有这张图就写名字的第一个字）。"""
     hexa = [(cx + r * math.cos(math.radians(60 * k)), cy + r * math.sin(math.radians(60 * k))) for k in range(6)]
     glow = _layer(img)
     ImageDraw.Draw(glow).polygon(hexa, fill=NEON + (90,))
@@ -281,8 +301,11 @@ def _avatar(img: Image.Image, cx: int, cy: int, r: int, player: str) -> None:
     for yy in range(size):
         k = yy / size
         td.line([(0, yy), (size, yy)], fill=(int(30 - 14 * k), int(84 - 44 * k), int(74 - 38 * k), 255))
-    girl = _mascot(int(size * 0.98), "hello", (0.5, 0.0, 0.60))     # 站着那张，只取头到胸口
-    if girl is not None:
+    face = _nav_face(nav, size)
+    girl = None if face is not None else _mascot(int(size * 0.98), "hello", (0.5, 0.0, 0.60))   # 站着那张，只取头到胸口
+    if face is not None:
+        tile.alpha_composite(face)
+    elif girl is not None:
         tile.alpha_composite(girl, ((size - girl.width) // 2, int(size * 0.07)))
     else:
         ch = (player or "?").strip()[:1].upper() or "?"
@@ -297,18 +320,122 @@ def _avatar(img: Image.Image, cx: int, cy: int, r: int, player: str) -> None:
     img.alpha_composite(tile.resize((r * 2, r * 2), Image.Resampling.LANCZOS), (cx - r, cy - r))
 
 
+def _radar_panel(img: Image.Image, x0: int, y0: int, w: int, h: int, vals: list | None) -> None:
+    """游戏个人卡那种六维图：从上面顺时针 NOTES / PEAK / TSUMAMI / TRICKY / HAND-TRIP / ONE-HAND，橙色填充。
+    vals 是 None：只画空的六边形 + 提示怎么填。"""
+    empty = not vals
+    vals = vals or [0] * 6
+    vmax = max(vals) if vals else 0
+    top = 100 if vmax <= 100 else (int(vmax / 50) + 1) * 50      # 满格：≤100 按 100，否则取上面一个 50 的整数倍
+    cx, cy, r = x0 + 236, y0 + h // 2 + 2, 106
+    ang = [math.radians(-90 + 60 * k) for k in range(6)]
+    pt = lambda k, f: (cx + r * f * math.cos(ang[k]), cy + r * f * math.sin(ang[k]))     # noqa: E731
+    s = 3                                           # 先放大画再缩小，边缘更顺
+    lay = Image.new("RGBA", (w * s, h * s), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(lay)
+    S = lambda p: ((p[0] - x0) * s, (p[1] - y0) * s)                                     # noqa: E731
+    ld.polygon([S(pt(k, 1)) for k in range(6)], fill=(10, 10, 12, 230))
+    for f in (1 / 3, 2 / 3, 1):
+        ld.line([S(pt(k, f)) for k in range(6)] + [S(pt(0, f))], fill=(120, 130, 130, 150), width=2 * s)
+    for k in range(6):
+        ld.line([S((cx, cy)), S(pt(k, 1))], fill=(120, 130, 130, 120), width=s)
+    if not empty:
+        poly = [S(pt(k, max(0.02, min(1.0, vals[k] / top)))) for k in range(6)]
+        ld.polygon(poly, fill=RADAR_FILL + (215,))
+        ld.line(poly + [poly[0]], fill=(255, 196, 120, 255), width=3 * s, joint="curve")
+    glow = lay.filter(ImageFilter.GaussianBlur(10 * s))
+    small = Image.alpha_composite(glow, lay).resize((w, h), Image.Resampling.LANCZOS)
+    img.alpha_composite(small, (x0, y0))
+    d = ImageDraw.Draw(img)
+    fl = CB._font("latin", 22)
+    for k in range(6):                              # 轴名贴在六边形外面
+        lx, ly = pt(k, 1.0)
+        dx, dy = math.cos(ang[k]), math.sin(ang[k])
+        anchor = ("m" if abs(dx) < 0.3 else ("l" if dx > 0 else "r")) + ("s" if dy < -0.7 else ("t" if dy > 0.7 else "m"))
+        d.text((lx + dx * 14, ly + dy * 12), RADAR_AXES[k], font=fl, fill=RADAR_COLORS[k], anchor=anchor)
+    # 右边列数值
+    tx, ty = x0 + 484, y0 + 44
+    G.draw(d, (tx, y0 + 22), "EFFECT RADAR", CB._chain("latin", 24), (150, 230, 190), anchor="lm")
+    fv = CB._font("latin", 34)
+    if empty:
+        for i, line in enumerate(("还没填六维图", "照游戏个人卡上的形状", "发 /sdvx 雷达 + 6 个数")):
+            G.draw(d, (tx, ty + 50 + i * 46), line, CB._chain("sc", 28 if i == 0 else 24),
+                   (230, 240, 236) if i == 0 else (150, 200, 180), anchor="lm")
+        return
+    for k in range(6):
+        yy = ty + 20 + k * 42
+        d.rounded_rectangle([tx, yy - 13, tx + 8, yy + 13], 3, fill=RADAR_COLORS[k])
+        d.text((tx + 20, yy), RADAR_AXES[k], font=CB._font("latin", 24), fill=(225, 238, 232), anchor="lm")
+        v = vals[k]
+        txt = str(int(v)) if float(v).is_integer() else f"{v:.2f}".rstrip("0").rstrip(".")
+        d.text((x0 + w - 24, yy), txt, font=fv, fill=(255, 255, 255), anchor="rm")
+
+
+def _nav_panel(img: Image.Image, x0: int, y0: int, w: int, h: int, nav: str, name: str) -> None:
+    """领航员图：铺满这一块（按高度放，脸在上面，所以从上往下取），斜切边框 + 荧光线。"""
+    try:
+        with Image.open(nav) as src:
+            src = src.convert("RGBA")
+            k = max(w / src.width, h / src.height)
+            im = src.resize((max(w, int(src.width * k)), max(h, int(src.height * k))), Image.Resampling.LANCZOS)
+    except (OSError, ValueError):
+        return
+    left = (im.width - w) // 2
+    top = int((im.height - h) * 0.18)               # 偏上取，脸不被切掉
+    tile = im.crop((left, top, left + w, top + h))
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).polygon(_cut(0, 0, w, h, 26), fill=255)
+    shade = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shade)
+    for yy in range(h // 2, h):                     # 底部压暗，写名字
+        sd.line([(0, yy), (w, yy)], fill=(0, 0, 0, int(190 * (yy - h // 2) / (h // 2))))
+    tile = Image.alpha_composite(tile, shade)
+    tile.putalpha(Image.composite(tile.getchannel("A"), Image.new("L", (w, h), 0), mask))
+    img.alpha_composite(tile, (x0, y0))
+    CB._overlay(img, lambda od: od.line(_cut(x0, y0, w, h, 26) + [_cut(x0, y0, w, h, 26)[0]], fill=NEON + (200,), width=3))
+    d = ImageDraw.Draw(img)
+    d.text((x0 + 26, y0 + h - 58), "NAVIGATOR", font=CB._font("latin", 22), fill=(150, 255, 200), anchor="lm")
+    if name:
+        c = CB._chain("bold", 40)
+        G.draw(d, (x0 + 26, y0 + h - 24), CB._fit(d, name, c, w - 52), c, (255, 255, 255), anchor="lm")
+
+
+def _profile_band(img: Image.Image, y: int, radar: list | None, nav: str | None, nav_name: str) -> None:
+    h = PROFILE_H - 18
+    CB._overlay(img, lambda od: od.polygon(_cut(MX, y, W - 2 * MX, h, 26), fill=(4, 14, 12, 214)))
+    CB._overlay(img, lambda od: od.line(_cut(MX, y, W - 2 * MX, h, 26) + [_cut(MX, y, W - 2 * MX, h, 26)[0]],
+                                        fill=NEON + (110,), width=2))
+    inner_y, inner_h = y + 14, h - 28
+    if radar and nav:
+        rw = 760
+        _radar_panel(img, MX + 20, inner_y, rw, inner_h, radar)
+        _nav_panel(img, MX + 20 + rw + 24, inner_y, W - 2 * MX - 40 - rw - 24, inner_h, nav, nav_name)
+    elif radar:
+        _radar_panel(img, MX + 20, inner_y, 760, inner_h, radar)
+        d = ImageDraw.Draw(img)
+        G.draw(d, (W - MX - 30, y + h - 26), "六维图是自己填的：/sdvx 雷达 6 个数", CB._chain("sc", 22), (130, 190, 165),
+               anchor="rm")
+    else:                                           # 只有领航员：左边空的六维图，版式和两样都有时一样
+        rw = 760
+        _radar_panel(img, MX + 20, inner_y, rw, inner_h, None)
+        _nav_panel(img, MX + 20 + rw + 24, inner_y, W - 2 * MX - 40 - rw - 24, inner_h, nav, nav_name)
+
+
 # ---------------------------------------------------------------- 主体
 def render(rows: list[K.SdvxRow], out_path: Path, *, player: str = "", jackets: dict | None = None,
            font_path: str | None = None, tz: str = "Australia/Sydney", bg_path=None,
            footer_left: str = "Generated by AstrBot", count: int = 0, all_rows: list | None = None,
-           max_kb: int = 3000, show_ex: bool = True) -> Path:
+           max_kb: int = 3000, show_ex: bool = True, radar: list | None = None, nav: str | None = None,
+           nav_name: str = "") -> Path:
     jackets = jackets or {}
     rows = rows[:50]
     all_rows = all_rows if all_rows is not None else rows
     total = K.sdvx_total(rows)
     n = len(rows)
     nrows = (n + COLS - 1) // COLS
-    cards_y = HEADER_H + STATS_H + 36
+    radar = list(radar)[:6] if radar and len(radar) >= 6 else None
+    band = PROFILE_H if (radar or nav) else 0
+    cards_y = HEADER_H + band + STATS_H + 36
     h = cards_y + nrows * (CARD_H + GAP_Y) + 16 + FOOTER_H
     img = CB._background(h, bg_path if bg_path is not None else TB.background("sdvx", "nabla", h))
     base, stars, c1, c2 = class_parts(total)
@@ -319,7 +446,7 @@ def render(rows: list[K.SdvxRow], out_path: Path, *, player: str = "", jackets: 
     CB._overlay(img, lambda od: od.line(_cut(px, py, pw, ph, 34) + [(px + 34, py)], fill=NEON + (120,), width=2))
     CB._overlay(img, lambda od: od.polygon([(px + 34, py), (px + 420, py), (px + 412, py + 8), (px + 26, py + 8)],
                                            fill=NEON + (255,)))
-    _avatar(img, px + 150, py + ph // 2 + 4, 96, player)
+    _avatar(img, px + 150, py + ph // 2 + 4, 96, player, nav)
     d = ImageDraw.Draw(img)
     nx = px + 280
     d.text((nx, py + 52), "SOUND VOLTEX", font=CB._font("latin", 28), fill=(120, 255, 190), anchor="lm")
@@ -360,8 +487,12 @@ def render(rows: list[K.SdvxRow], out_path: Path, *, player: str = "", jackets: 
     frac = 1.0 if nxt is None else max(0.02, min(1.0, (total - lo) / max(nxt - lo, 1)))
     CB._overlay(img, lambda od: od.rounded_rectangle([bx0, by, bx0 + int((bx1 - bx0) * frac), by + 10], 5, fill=c2 + (255,)))
 
+    # ---- 名片条：六维图 + 领航员 ----
+    if band:
+        _profile_band(img, HEADER_H - 6, radar, nav, nav_name)
+
     # ---- 统计条 ----
-    sy = HEADER_H
+    sy = HEADER_H + band
     CB._overlay(img, lambda od: od.rounded_rectangle([MX, sy, W - MX, sy + STATS_H], 16, fill=(4, 14, 12, 208)))
     counts = {k: sum(1 for r in all_rows if r.lamp == k) for k in LAMP_STYLE}
     order = ("PUC", "UC", "MXV", "EXC", "COMP", "PLAY")

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import time
 from pathlib import Path
 
@@ -11,7 +10,7 @@ import httpx
 
 from .models import ComboLamp, Difficulty, Profile, Rank, Score
 
-log = logging.getLogger("chuni.cn")
+from astrbot.api import logger as log  # noqa: E402
 
 TACHI_CHARTS = "https://raw.githubusercontent.com/zkldi/Tachi/refs/heads/main/db/seeds/charts-chunithm.json"
 DF_MUSIC = "https://www.diving-fish.com/api/chunithmprober/music_data"
