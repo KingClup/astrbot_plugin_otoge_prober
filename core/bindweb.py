@@ -3,7 +3,7 @@
 插件只在本机开一个小 HTTP 服务（默认 127.0.0.1:36199；别用 6199，那是 AstrBot aiocqhttp 的端口），外面用 Cloudflare Tunnel / frp 等把公网 HTTPS 域名接进来；
 换入口不用改这里。
 
-流程：私聊发「/查分 网页绑定」→ 机器人回一个 10 分钟有效的链接 https://<域名>/#t=<一次性令牌>
+流程：私聊发「/查分 网页绑定」→ 机器人回一个 10 分钟有效的链接 https://<域名>/bind#t=<一次性令牌>
      → 手机打开，选游戏 / 区服，填 clal、SEGA ID、落雪密钥、水鱼用户名，或私服（MuNET / AquaDX 用户名、
        RinNET 账号密码 / 令牌；音击只有私服 AquaDX）→ 直接 HTTPS 交给插件加密保存。
 令牌放在 # 后面：浏览器不会把它发进任何请求行，Cloudflare / 代理日志里也看不到；页面脚本用请求头带给接口。
@@ -36,6 +36,8 @@ LX_OAUTH_CONSENT = ("1. 点下面的按钮会跳到落雪查分器的授权页�
                     "2. 授权凭证加密保存在 bot 主人的电脑上，不会发进群聊、不会交给 AI、日志里也不会出现；我会每隔几周自动续期。\n"
                     "3. 一次授权舞萌、中二国服都能用。随时发 /mai 解绑 国服、/chu 解绑 国服，或者在落雪网站上取消授权。")
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "bind")
+HOME_DIR = os.path.join(os.path.dirname(WEB_DIR), "home")    # 主页（v2.5.7）：根路径；绑定页在 /bind
+CARD_DIR = os.path.join(os.path.dirname(HOME_DIR), "card")
 TTL = 600                    # 链接有效期（秒）
 MAX_PENDING = 8              # 一条群链接最多让几个浏览器等确认（再多就不发确认码了）
 MAX_CODE_TRIES = 5           # 确认码回错几次，这条链接作废
@@ -62,6 +64,8 @@ SECURITY_HEADERS = {
 
 def mask_qq(uid: str) -> str:
     uid = str(uid)
+    if not uid.isdigit():                 # QQ 官方机器人给的是 openid（一长串），不是 QQ 号：只露头尾
+        return uid if len(uid) <= 8 else uid[:4] + "…" + uid[-2:]
     return uid if len(uid) <= 4 else uid[:2] + "*" * (len(uid) - 4) + uid[-2:]
 
 
@@ -96,6 +100,12 @@ class Sessions:
             del self._by_hash[k]
         token = secrets.token_urlsafe(24)
         self._by_hash[_h(token)] = Session(str(uid), umo, name, time.time() + self.ttl, group=group)
+        cb = getattr(self, "on_issue", None)
+        if cb:
+            try:
+                cb()
+            except Exception:  # noqa: BLE001
+                pass
         return token
 
     def get(self, token: str) -> Session | None:
@@ -182,11 +192,12 @@ class Binder:
         geki = {"jp": bool(off is not None and off.bound(uid))}
         return {"mai": mai, "chu": chu, "geki": geki}
 
-    def lx_options(self) -> dict:
+    def lx_options(self, uid: str = "") -> dict:
         p = self.p
         oauth = getattr(p, "lx_oauth", None)
+        # 「按 QQ 找」要真的 QQ 号：从 QQ 官方机器人来的人（uid 是 openid）不给这个选项
         return {"oauth": bool(oauth is not None and oauth.configured and p.lx_oauth_redirect()),
-                "qq": bool(getattr(p.service, "lx_dev", ""))}
+                "qq": bool(getattr(p.service, "lx_dev", "")) and (not uid or str(uid).isdigit())}
 
     async def lx_oauth_complete(self, uid: str) -> tuple[bool, list[str]]:
         """授权回来以后：用这个玩家的令牌分别看舞萌 / 中二国服有没有数据，有就绑上（一次授权两个游戏）。"""
@@ -260,6 +271,8 @@ class Binder:
                 raise BindError("落雪密钥格式不对：在落雪网站「账号详情 → 个人 API 密钥」里复制完整的一串")
         elif method == "df" and value and not DF_NAME_RE.fullmatch(value):
             raise BindError("水鱼用户名格式不对（不能有空格）；不填就用你的 QQ 去水鱼查")
+        if method in ("df", "lxqq") and not value and not str(uid).isdigit():
+            raise BindError("这边拿不到你的 QQ 号（你是从 QQ 官方机器人过来的）：水鱼请填用户名，落雪请用授权或个人密钥")
 
         ctx = Ctx(uid=str(uid), private=True, admin=False, name="")
         secrets_used = [s for s in (value if method in ("clal", "lx") else "", password) if s]
@@ -384,14 +397,26 @@ class BindWeb:
                 raise
             for k, v in SECURITY_HEADERS.items():
                 resp.headers.setdefault(k, v)
+            self._count_view(request, resp)
             return resp
 
         app = web.Application(client_max_size=16 * 1024, middlewares=[headers])
-        app.router.add_get("/", self.page)
+        app.router.add_get("/", self.home)                 # 主页：只有两个入口（绑定 / 传分）和几条指令
+        app.router.add_get("/home/app.js", self.home_static)
+        app.router.add_get("/home/app.css", self.home_static)
+        app.router.add_get("/bind", self.page)             # 绑定页（v2.5.7 以前在根路径；老链接由主页的脚本转过来）
+        app.router.add_get("/bind/", self.page)
         app.router.add_get("/app.js", self.static)
         app.router.add_get("/app.css", self.static)
+        app.router.add_get("/yume.js", self.static)        # 三个网站共用的看板娘 / 转场 / 剪影（v3.0.0）
+        app.router.add_get("/yume.css", self.static)
         app.router.add_get("/img/{name}", self.image)
         app.router.add_get("/healthz", self.health)
+        app.router.add_get("/u/{slug}", self.card_page)            # 公开名片（v3.1.0）：自己发「/名片 开」才有
+        app.router.add_get("/u/{slug}/{name}", self.card_image)
+        app.router.add_get("/api/card/{slug}", self.api_card)
+        app.router.add_get("/card/app.js", self.card_static)
+        app.router.add_get("/card/app.css", self.card_static)
         app.router.add_get("/api/session", self.api_session)
         app.router.add_post("/api/bind", self.api_bind)
         app.router.add_post("/api/lx/start", self.api_lx_start)
@@ -400,7 +425,37 @@ class BindWeb:
             if hasattr(x, "attach_bind"):
                 x.attach_bind(self)
             x.add_routes(app)
+        # 这次部署有没有传分网站：没有的话主页不放那张卡
+        self.has_scores = any(getattr(r.resource, "canonical", "") == "/scores" for r in app.router.routes())
         return app
+
+    PAGE_NAMES = {"/": "home", "/bind": "bind", "/bind/": "bind", "/scores": "scores", "/scores/": "scores"}
+
+    def _stat(self, kind: str, key: str) -> None:
+        st = getattr(self, "stats", None)
+        if st is not None:
+            st.bump(kind, key)
+
+    def _count_view(self, request, resp) -> None:
+        """只数页面本身（不数接口、图片、脚本），顺手记一下是从哪点过来的。只留域名，不留完整地址。"""
+        try:
+            if request.method != "GET" or getattr(resp, "status", 200) != 200:
+                return
+            path = request.path
+            name = self.PAGE_NAMES.get(path) or ("card" if path.startswith("/u/") and path.count("/") == 2 else "")
+            if not name:
+                return
+            self._stat("web", name)
+            ref = request.headers.get("Referer", "")
+            if not ref:
+                self._stat("ref", "直接打开")
+                return
+            from urllib.parse import urlsplit
+            host = (urlsplit(ref).hostname or "").lower()
+            mine = (request.headers.get("X-Forwarded-Host") or request.host or "").split(":")[0].lower()
+            self._stat("ref", "站内" if host and host == mine else (host[:40] or "直接打开"))
+        except Exception:  # noqa: BLE001
+            pass
 
     async def start(self, retries: int = 10) -> bool:
         from aiohttp import web
@@ -473,6 +528,21 @@ class BindWeb:
             html = f.read().replace("{{BOT}}", _esc(self.bot_name))
         return web.Response(text=html, content_type="text/html", charset="utf-8")
 
+    async def home(self, request):
+        """主页：不带任何个人信息，谁打开都一样。"""
+        from aiohttp import web
+        with open(os.path.join(HOME_DIR, "index.html"), encoding="utf-8") as f:
+            html = (f.read().replace("{{BOT}}", _esc(self.bot_name))
+                    .replace("{{BODY}}", "" if getattr(self, "has_scores", False) else "no-scores"))
+        return web.Response(text=html, content_type="text/html", charset="utf-8")
+
+    async def home_static(self, request):
+        from aiohttp import web
+        name = request.path.rsplit("/", 1)[-1]             # 路由只登记了 app.js / app.css 两个名字
+        ctype = "application/javascript" if name.endswith(".js") else "text/css"
+        with open(os.path.join(HOME_DIR, name), encoding="utf-8") as f:
+            return web.Response(text=f.read(), content_type=ctype, charset="utf-8")
+
     async def static(self, request):
         from aiohttp import web
         name = request.path.lstrip("/")
@@ -494,6 +564,44 @@ class BindWeb:
             return web.Response(body=f.read(), content_type="image/webp",
                                 headers={"Cache-Control": "public, max-age=86400"})
 
+    # ---------- 公开名片 ----------
+    async def card_page(self, request):
+        from aiohttp import web
+        cards = getattr(self, "cards", None)
+        if cards is None or cards.public(request.match_info["slug"]) is None:
+            raise web.HTTPNotFound(text="这张名片不存在，或者主人把它关掉了。")
+        with open(os.path.join(CARD_DIR, "index.html"), encoding="utf-8") as f:
+            html = f.read().replace("{{BOT}}", _esc(self.bot_name)).replace("{{QQ}}", _esc(getattr(self, "brand_qq", "") or ""))
+        return web.Response(text=html, content_type="text/html", charset="utf-8",
+                            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})
+
+    async def card_static(self, request):
+        from aiohttp import web
+        name = request.path.rsplit("/", 1)[-1]
+        ctype = "application/javascript" if name.endswith(".js") else "text/css"
+        with open(os.path.join(CARD_DIR, name), encoding="utf-8") as f:
+            return web.Response(text=f.read(), content_type=ctype, charset="utf-8", headers={"Cache-Control": "no-store"})
+
+    async def api_card(self, request):
+        if not self.ip_api.allow(self.client_ip(request)):
+            return self._json({"error": "请求太频繁，稍等一分钟"}, 429)
+        cards = getattr(self, "cards", None)
+        data = cards.public(request.match_info["slug"]) if cards is not None else None
+        if data is None:
+            return self._json({"error": "gone"}, 404)
+        data["bot"] = self.bot_name
+        data["qq"] = getattr(self, "brand_qq", "") or ""
+        self._stat("funnel", "card_view")
+        return self._json(data)
+
+    async def card_image(self, request):
+        from aiohttp import web
+        cards = getattr(self, "cards", None)
+        path = cards.image_path(request.match_info["slug"], request.match_info["name"]) if cards is not None else None
+        if path is None:
+            raise web.HTTPNotFound()
+        return web.FileResponse(path, headers={"Cache-Control": "public, max-age=600", "X-Robots-Tag": "noindex"})
+
     async def health(self, request):
         return self._json({"ok": True})
 
@@ -512,14 +620,20 @@ class BindWeb:
         if s is None:
             return self._json({"error": err}, 409 if err == "claimed" else 401)
         claim = ""
+        if not getattr(s, "_counted", False):          # 一条链接只算一次「打开」
+            try:
+                s._counted = True
+                self._stat("funnel", "bind_opened")
+            except Exception:  # noqa: BLE001
+                pass
         return self._json({
             "claim": claim, "group": s.group,
-            "bot": self.bot_name, "qq": mask_qq(s.uid), "name": s.name,
+            "bot": self.bot_name, "qq": mask_qq(s.uid), "name": s.name, "official": not str(s.uid).isdigit(),
             "expires_in": max(0, int(s.exp - time.time())),
             "bound": self.binder.status(s.uid),
             "consent": {"mai": CONSENT_TEXT.rsplit("\n", 1)[0], "lx": LX_CONSENT_TEXT.rsplit("\n", 1)[0],
                         "lxoauth": LX_OAUTH_CONSENT},
-            "lx": self.binder.lx_options(),
+            "lx": self.binder.lx_options(s.uid),
         })
 
     async def api_lx_start(self, request):
@@ -570,6 +684,8 @@ class BindWeb:
             msg = str(e) if type(e).__name__ in ("LxnsError", "OAuthExpired") else f"出错了：{type(e).__name__}"
             return self._result_page(False, msg)
         self.log(f"[otoge] web bind lxoauth {mask_qq(uid)} {'ok' if ok else 'failed'}")
+        if ok:
+            self._stat("funnel", "bind_done")
         if ok and self.notify and extra.get("umo"):
             first = next((x for x in lines if "绑定成功" in x), lines[0] if lines else "")
             try:
@@ -587,12 +703,13 @@ class BindWeb:
     def _result_page(self, ok: bool, msg: str):
         from aiohttp import web
         body = "".join(f"<p>{_esc(x)}</p>" if x else "" for x in msg.split("\n"))
-        pose = "ok" if ok else "gone"
-        girl = (f'<img class="notice-girl" src="/img/yume-{pose}.webp" alt="" width="520" height="388">'
-                if os.path.isfile(os.path.join(WEB_DIR, "img", f"yume-{pose}.webp")) else "")   # 公开版包里没有这张图
+        pose = "heart" if ok else "pout"
+        # 半身像 = 全身动作图只露上半截（/yume.css 的 .yb）；这一页没有脚本，所以直接写好 yb-in
+        girl = (f'<div class="notice-girl yb half yb-in"><img class="yb-img" src="/img/yume-p-{pose}.webp?v=305" alt=""></div>'
+                if os.path.isfile(os.path.join(WEB_DIR, "img", f"yume-p-{pose}.webp")) else "")   # 公开版包里没有这张图
         html = (f'<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
                 f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>落雪授权 · {_esc(self.bot_name)}</title>'
-                f'<link rel="stylesheet" href="/app.css"></head><body><main class="wrap">'
+                f'<link rel="stylesheet" href="/yume.css?v=300"><link rel="stylesheet" href="/app.css?v=300"></head><body><main class="wrap">'
                 f'<header class="top"><div class="bar"><span class="brand">{_esc(self.bot_name)} 音游查分</span></div>'
                 f'<div class="rule" aria-hidden="true"><i></i><i></i></div>'
                 f'<h1>{"授权成功" if ok else "没有绑上"}</h1></header>'
@@ -638,6 +755,8 @@ class BindWeb:
                 return self._json({"ok": False, "message": f"出错了：{type(e).__name__}"})
             ok = is_success(msg)
             self.log(f"[otoge] web bind {tag} {mask_qq(s.uid)} {'ok' if ok else 'failed'}")
+            if ok:
+                self._stat("funnel", "bind_done")
             if ok and self.notify and s.umo:
                 first = msg.split("\n", 1)[0]
                 try:

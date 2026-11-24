@@ -70,6 +70,7 @@ class ScoreWeb:
         r.add_post("/api/sb/radar", self.api_radar)
         r.add_post("/api/sb/nav", self.api_nav)
         r.add_get("/api/sb/nav.png", self.api_nav_img)
+        r.add_get("/api/sb/nav_face.png", self.api_nav_img)
 
     # ---------- 工具 ----------
     @staticmethod
@@ -91,6 +92,11 @@ class ScoreWeb:
     def _secure(request) -> bool:
         return request.secure or request.headers.get("X-Forwarded-Proto", "") == "https" \
             or "https" in request.headers.get("CF-Visitor", "")
+
+    def _stat(self, key: str) -> None:
+        st = getattr(self.bind, "stats", None) if self.bind is not None else None
+        if st is not None:
+            st.bump("funnel", key)
 
     async def _body(self, request) -> dict | None:
         if request.headers.get("Content-Type", "").split(";")[0].strip() != "application/json" \
@@ -189,6 +195,7 @@ class ScoreWeb:
             self.log(f"[otoge] scorebook login pending {mask_qq(info['uid'])} ({self._ua(request)})")
             return self._json({"ok": False, "pending": True, "pid": info["pid"], "code": info["code"],
                                "game": info.get("game") or "", "ttl": 300})
+        self._stat("score_login")
         return self._logged_in(request, sess, info)
 
     def _logged_in(self, request, sess: str, info: dict):
@@ -356,6 +363,7 @@ class ScoreWeb:
             return self._json({"ok": False, "message": msg})
         after = self.summary(u["uid"], g)
         rec = {k: v for k, v in res["new"].items() if k != "h"}
+        self._stat("score_saved")
         return self._json({"ok": True, "record": rec, "kept_higher": res["kept_higher"], "changed": res["changed"],
                            "delta": after["total"] - before["total"], "summary": after})
 
@@ -481,7 +489,10 @@ class ScoreWeb:
     def _profile_out(self, uid: str) -> dict:
         p = self.book.store.profile(uid)
         has = bool(p.get("nav_img")) and os.path.exists(self.book.store.nav_path(uid))
-        return {"radar": p.get("radar"), "nav": p.get("nav") or "", "img": int(p.get("nav_img") or 0) if has else 0}
+        fp = self.book.store.face_path(uid)
+        face = int(os.path.getmtime(fp)) if has and os.path.exists(fp) else 0
+        return {"radar": p.get("radar"), "nav": p.get("nav") or "", "img": int(p.get("nav_img") or 0) if has else 0,
+                "face": face}
 
     async def api_profile(self, request):
         if not self.ip_api.allow(self._ip(request)):
@@ -518,10 +529,11 @@ class ScoreWeb:
         return self._json({"ok": True, **self._profile_out(u["uid"])})
 
     async def api_nav(self, request):
-        """领航员：{name} 改名字；{img: dataURL / base64} 换图；{clear: true} 全删。图在浏览器里先缩过，这里再转一遍 PNG。"""
+        """领航员：{name} 改名字；{img: dataURL / base64} 换图；{face: dataURL} 单独框的头像；{clear: true} 全删。
+        图在浏览器里先框好、缩过，这里再转一遍 PNG。只换图不带头像（也没说 keep_face）：以前框的头像不对应了，删掉回到自动取。"""
         import asyncio
         import base64
-        from .service import save_nav_image
+        from .service import drop_file, save_face_image, save_nav_image
         if not self.ip_api.allow(self._ip(request)):
             return self._json({"ok": False, "message": "太频繁了"}, 429)
         u = self._user(request)
@@ -532,28 +544,34 @@ class ScoreWeb:
             return self._json({"ok": False, "message": "图太大了（最多 6 MB 左右）"}, 400)
         uid, store = u["uid"], self.book.store
         path = store.nav_path(uid)
+        face_path = store.face_path(uid)
         if b.get("clear"):
             store.set_profile(uid, nav=None, nav_img=None)
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+            drop_file(path)
+            drop_file(face_path)
             return self._json({"ok": True, **self._profile_out(uid)})
         if "name" in b:
             name = re.sub(r"\s+", " ", str(b.get("name") or "")).strip()[:24]
             store.set_profile(uid, nav=name or None)
-        img = b.get("img")
-        if img:
-            if not self.user_nav.allow(uid):
-                return self._json({"ok": False, "message": "一小时最多换 20 次图"}, 429)
+        img, face = b.get("img"), b.get("face")
+        if (img or face) and not self.user_nav.allow(uid):
+            return self._json({"ok": False, "message": "一小时最多换 20 次图"}, 429)
+        if face and not img and not os.path.exists(path):
+            return self._json({"ok": False, "message": "先传领航员图，再框头像"}, 400)
+        for data, fn, dst, what in ((img, save_nav_image, path, "领航员图"), (face, save_face_image, face_path, "头像")):
+            if not data:
+                continue
             try:
-                raw = base64.b64decode(str(img).split(",", 1)[-1], validate=False)
-                await asyncio.to_thread(save_nav_image, raw, path)
+                raw = base64.b64decode(str(data).split(",", 1)[-1], validate=False)
+                await asyncio.to_thread(fn, raw, dst)
             except ValueError as e:
-                return self._json({"ok": False, "message": f"这张图用不了：{e}"}, 400)
+                return self._json({"ok": False, "message": f"这张{what}用不了：{e}"}, 400)
             except Exception as e:  # noqa: BLE001
-                self.log(f"[otoge] nav upload failed: {type(e).__name__}: {e}")
-                return self._json({"ok": False, "message": "图片没存上，换一张试试"}, 500)
+                self.log(f"[otoge] nav upload failed ({what}): {type(e).__name__}: {e}")
+                return self._json({"ok": False, "message": f"{what}没存上，换一张试试"}, 500)
+        if img:
+            if not face and not b.get("keep_face"):
+                drop_file(face_path)
             store.set_profile(uid, nav_img=int(time.time()))
         return self._json({"ok": True, **self._profile_out(uid)})
 
@@ -562,7 +580,8 @@ class ScoreWeb:
         u = self._user(request)
         if u is None:
             return web.Response(status=404)
-        p = self.book.store.nav_path(u["uid"])
+        st = self.book.store
+        p = st.face_path(u["uid"]) if request.path.endswith("_face.png") else st.nav_path(u["uid"])
         if not os.path.exists(p):
             return web.Response(status=404)
         return web.FileResponse(p, headers={"Cache-Control": "private, max-age=86400", "Content-Type": "image/png"})

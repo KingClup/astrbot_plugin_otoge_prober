@@ -1,0 +1,116 @@
+/* 三个网站共用的小件：会动的看板娘、半身像、背景剪影、转场幕布、判定字。
+   颜色都用自己的 --y-*：传分网站按游戏换主题，这几样不跟着变。 */
+:root {
+  --y-navy: #1b2a4a; --y-fog: #8fb2d9; --y-gold: #e3c16a;
+  --y-mai: #2878eb; --y-chu: #f0b429; --y-geki: #ec5096; --y-sdvx: #8a46dc;
+  --y-ease: cubic-bezier(.2, .7, .2, 1); --y-io: cubic-bezier(.7, 0, .2, 1); --y-pop: cubic-bezier(.3, 1.5, .5, 1);
+  --y-serif: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", STSong, SimSun, serif;
+}
+
+/* ---------- 会动的看板娘 ---------- */
+/* 画框只定宽，高由 ::before 的 padding 撑出来（--yp 是脚本算好的百分比）。不用 aspect-ratio：老一点的 iOS 浏览器不认里面的 calc() */
+.yf { position: relative; overflow: hidden; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.yf::before, .yb::before { content: ""; display: block; padding-bottom: var(--yp, 220.82%); }
+.yf.yf-full { overflow: visible; }
+.yf-img { position: absolute; left: 0; top: 0; display: block; width: 100%; height: auto; max-width: none; opacity: 0; transition: opacity .25s; -webkit-user-drag: none; }
+.yf.yf-in .yf-img { opacity: 1; }
+.yf-rig { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
+.yf.yf-live .yf-rig { display: block; }
+.yf.yf-live .yf-img { visibility: hidden; }
+/* 整个人都离地的帧画框高一截（头顶多留 320px），站着的帧（.std）和立绘同一个框 */
+.yf-act { position: absolute; left: 0; top: -22.857%; width: 100%; height: 122.857%; max-width: none; opacity: 0; -webkit-user-drag: none; }
+.yf-act.std { top: 0; height: 100%; }
+.yf-act.on { opacity: 1; }
+.yf:not(.yf-acting) .yf-act { display: none; }
+.yf.yf-acting .yf-img, .yf.yf-acting .yf-rig { opacity: 0; }
+/* 朝另一边：整张镜像（指右边的门时用） */
+.yf.flip .yf-img, .yf.flip .yf-rig { transform: scaleX(-1); }
+
+/* ---------- 不动的半身像 ---------- */
+.yb { position: relative; overflow: hidden; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.yb-img { position: absolute; left: 0; top: 0; display: block; width: 100%; height: auto; max-width: none; opacity: 0; transition: opacity .2s; -webkit-user-drag: none; }
+.yb.yb-in .yb-img { opacity: 1; }
+.yb.half { --yp: 110.41%; }
+.no-yume .yf, .no-yume .yb, .no-yume .y-only { display: none !important; }
+
+/* ---------- 背景剪影 ---------- */
+.ydefs { position: absolute; }
+.ysky { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.ysky svg { position: absolute; top: 0; left: var(--x); width: var(--s); height: var(--s); opacity: var(--o); animation: ysky-fall var(--d) linear var(--dl) infinite; }
+.ynote { color: var(--y-fog); }
+.ynote.g-mai { color: color-mix(in srgb, var(--y-mai) 55%, var(--y-fog)); }
+.ynote.g-chu { color: color-mix(in srgb, var(--y-chu) 60%, var(--y-fog)); }
+.ynote.g-geki { color: color-mix(in srgb, var(--y-geki) 55%, var(--y-fog)); }
+.ynote.g-sdvx { color: color-mix(in srgb, var(--y-sdvx) 55%, var(--y-fog)); }
+@keyframes ysky-fall { from { transform: translateY(-12vh) rotate(var(--r0, 0deg)); } to { transform: translateY(112vh) rotate(var(--r1, 90deg)); } }
+
+/* ---------- 转场幕布 ---------- */
+.ywipe { position: fixed; inset: 0; z-index: 90; pointer-events: none; }
+.ywipe i { position: absolute; inset: 0; clip-path: polygon(0 0, 0 0, -25% 100%, -25% 100%); }
+.ywipe i:first-child { background: var(--y-fog); }
+.ywipe i + i, .yume-arrive body::before {
+  background-color: var(--y-navy);
+  background-image:
+    linear-gradient(-45deg, var(--y-navy) 25%, transparent 25%, transparent 75%, rgba(143, 178, 217, .13) 75%),
+    linear-gradient(-45deg, rgba(143, 178, 217, .13) 25%, transparent 25%, transparent 75%, var(--y-navy) 75%),
+    linear-gradient(45deg, rgba(143, 178, 217, .13) 17%, transparent 17%, transparent 25%, rgba(143, 178, 217, .13) 25%,
+      rgba(143, 178, 217, .13) 36%, transparent 36%, transparent 64%, rgba(143, 178, 217, .13) 64%,
+      rgba(143, 178, 217, .13) 75%, transparent 75%, transparent 83%, rgba(143, 178, 217, .13) 83%);
+  background-size: 28px 28px; background-position: 0 0, 14px 14px, 14px 14px;
+}
+/* 从站内跳过来：脚本还没建好幕布之前，先用 body 的伪元素把页面盖住 */
+.yume-arrive body::before { content: ""; position: fixed; inset: 0; z-index: 89; }
+.ywipe.hold i { clip-path: none; }
+/* 幕布扫过来的那一下，底下先垫一层藏青（主页一直是这样的） */
+.ywipe.sweep { background: var(--y-navy); }
+.ywipe-halo { position: absolute; left: 50%; top: 50%; width: 168px; margin: -34px 0 0 -84px; overflow: visible; transform: rotate(-8deg); opacity: 0; }
+.ywipe-halo .ring { fill: none; stroke: var(--y-gold); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; }
+.ywipe-halo .rip { fill: none; stroke: var(--y-gold); stroke-width: 1.5; opacity: 0; transform-origin: 80px 32px; }
+.ywipe-halo .star { fill: var(--y-gold); transform-origin: 138px 17px; opacity: 0; }
+.ywipe.sweep .ywipe-halo { opacity: 1; }
+.ywipe.sweep .ywipe-halo .ring { animation: y-draw .36s var(--y-io) .22s both; }
+.ywipe.sweep .ywipe-halo .star { opacity: 1; animation: y-star .3s var(--y-pop) .56s both; }
+.ywipe.sweep .ywipe-halo .rip { animation: y-rip .5s var(--y-ease) .56s both; }
+.ywipe.sweep i:first-child { animation: y-wipe-in .32s var(--y-io) both; }
+.ywipe.sweep i + i { animation: y-wipe-in .32s var(--y-io) .07s both; }
+.ywipe.back i:first-child { animation: y-wipe-out .4s var(--y-io) .08s both; }
+.ywipe.back i + i { animation: y-wipe-out .4s var(--y-io) both; }
+@keyframes y-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes y-star { from { transform: scale(0) rotate(-180deg); } }
+@keyframes y-rip { from { opacity: .8; transform: scale(1); } to { opacity: 0; transform: scale(1.5); } }
+@keyframes y-wipe-in { to { clip-path: polygon(0 0, 125% 0, 100% 100%, -25% 100%); } }
+@keyframes y-wipe-out { from { clip-path: polygon(0 0, 125% 0, 100% 100%, -25% 100%); } to { clip-path: polygon(125% 0, 125% 0, 100% 100%, 100% 100%); } }
+
+/* ---------- 判定字 ---------- */
+.yjudge { position: fixed; left: 0; right: 0; top: 34%; z-index: 80; height: 0; pointer-events: none; }
+.yjudge-band {
+  position: absolute; left: -4%; right: -4%; top: -40px; height: 80px; transform: rotate(-4deg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background-color: var(--y-navy);
+  background-image:
+    linear-gradient(-45deg, var(--y-navy) 25%, transparent 25%, transparent 75%, rgba(143, 178, 217, .13) 75%),
+    linear-gradient(-45deg, rgba(143, 178, 217, .13) 25%, transparent 25%, transparent 75%, var(--y-navy) 75%);
+  background-size: 20px 20px; background-position: 0 0, 10px 10px;
+  box-shadow: 0 -5px 0 -3.5px var(--y-gold), 0 5px 0 -3.5px var(--y-gold), 0 -8px 0 var(--y-navy), 0 8px 0 var(--y-navy);
+  animation: yj-band 1.9s var(--y-io) both;
+}
+.yjudge-word { display: flex; font-family: var(--y-serif); font-style: italic; font-weight: 700; font-size: clamp(26px, 8vw, 46px); line-height: 1; letter-spacing: .1em; color: var(--y-gold); }
+.yjudge-word span { display: block; animation: yj-letter .42s var(--y-pop) calc(.2s + var(--i) * .035s) both; }
+.yjudge-sub { font-size: 13px; letter-spacing: .3em; color: #fff; opacity: .9; animation: yj-sub .4s ease-out .5s both; }
+.yjudge.small { top: 26%; }
+.yjudge.small .yjudge-band { height: 56px; top: -28px; }
+.yjudge.small .yjudge-word { font-size: clamp(20px, 6vw, 30px); }
+.yjudge-star {
+  position: absolute; left: 50%; top: 0; width: 16px; height: 16px; margin: -8px; background: var(--c);
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  opacity: 0; animation: yj-star .9s var(--y-ease) var(--dl) both;
+}
+@keyframes yj-band { 0% { clip-path: inset(0 100% 0 0); } 14% { clip-path: inset(0 0 0 0); } 82% { clip-path: inset(0 0 0 0); } 100% { clip-path: inset(0 0 0 100%); } }
+@keyframes yj-letter { from { opacity: 0; transform: translateY(-18px) scale(1.5); } to { opacity: 1; transform: none; } }
+@keyframes yj-sub { from { opacity: 0; letter-spacing: .6em; } }
+@keyframes yj-star { 0% { opacity: 0; transform: rotate(var(--a)) translateY(0) scale(.2); } 20% { opacity: 1; } 100% { opacity: 0; transform: rotate(var(--a)) translateY(calc(var(--r) * -1)) rotate(120deg) scale(1.1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ysky { display: none; }
+  .yjudge-band, .yjudge-word span, .yjudge-sub { animation: none; }
+}

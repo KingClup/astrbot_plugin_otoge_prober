@@ -240,6 +240,10 @@ class ScoreStore:
         """领航员图存在 scorebook/nav/<QQ>.png（用户自己传的，不进公开仓库）。"""
         return os.path.join(os.path.dirname(self.dir), "nav", f"{uid}.png")
 
+    def face_path(self, uid: str) -> str:
+        """单独框的头像（B50 名牌上那个六边形），和领航员图放在一起：nav/<QQ>_face.png。没有就从领航员图上自动取。"""
+        return os.path.join(os.path.dirname(self.dir), "nav", f"{uid}_face.png")
+
     def uids(self) -> list[str]:
         try:
             names = os.listdir(self.dir)

@@ -116,7 +116,14 @@ def _mascot(size: int, pose: str = "peace", crop: tuple | None = None) -> Image.
     if key not in _sprites:
         im = None
         try:
-            with Image.open(_ASSET_DIR / f"yume-{pose}.webp") as src:
+            # v3.0.0 起看板娘换成全身图 yume-p-<姿势>.webp；老名字（hello / pass / gone）对到新姿势
+            name = {"hello": "wave", "pass": "card", "gone": "pout"}.get(pose, pose)
+            path = _ASSET_DIR / f"yume-p-{name}.webp"
+            if not path.exists():
+                path = _ASSET_DIR / f"yume-{pose}.webp"
+            if crop is None and path.name.startswith("yume-p-"):
+                crop = (0.5, 0.0, 0.62)             # 全身图：只取头到胸口
+            with Image.open(path) as src:
                 src = src.convert("RGBA")
                 if crop:
                     side = int(src.width * crop[2])

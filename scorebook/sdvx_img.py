@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import math
+import os
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -38,10 +39,12 @@ CARD_H = 200
 CUT = 18                      # 卡片左上 / 右下切掉的角
 JK = 128
 HEADER_H, STATS_H, FOOTER_H = 330, 104, 72
-PROFILE_H = 330                # 名片条（六维图 + 领航员），两样都没填就没有这一条
+PROFILE_H = 420                # 名片条（六维图 + 领航员），两样都没填就没有这一条
 RADAR_AXES = ("NOTES", "PEAK", "TSUMAMI", "TRICKY", "HAND-TRIP", "ONE-HAND")
-RADAR_COLORS = ((80, 226, 236), (255, 84, 104), (255, 120, 200), (242, 220, 64), (178, 112, 255), (112, 232, 112))
-RADAR_FILL = (255, 112, 24)
+RADAR_COLORS = ((64, 224, 216), (255, 56, 96), (240, 60, 200), (232, 228, 48), (150, 84, 255), (56, 224, 80))
+RADAR_LABELS = ("NOTES", "PEAK", "TSUMAMI", "TRICKY", "HAND TRIP", "ONE HAND")       # 游戏个人卡上的写法（没有连字符）
+RADAR_FILL = (255, 96, 32)     # 游戏个人卡上那个六维图：橙红色，圈是 100，超过 100 的角会伸到圈外面（爆表）
+RADAR_OVER = 1.75              # 爆表最多画到圈半径的这么多倍，再大就顶到名片条外面了
 NEON = (70, 255, 160)
 
 # 段位颜色（主色, 亮色）
@@ -273,9 +276,16 @@ def _jacket(path) -> Image.Image:
 
 
 def _nav_face(nav: str | None, size: int) -> Image.Image | None:
-    """领航员图取上方居中的一块当头像（脸一般在上面）。"""
+    """头像：网站上单独框过的（领航员图旁边的 <QQ>_face.png）就用它；没有就从领航员图取上方居中的一块（脸一般在上面）。"""
     if not nav:
         return None
+    face = nav[:-4] + "_face.png" if nav.endswith(".png") else ""
+    if face and os.path.exists(face):
+        try:
+            with Image.open(face) as src:
+                return src.convert("RGBA").resize((size, size), Image.Resampling.LANCZOS)
+        except (OSError, ValueError):
+            pass
     try:
         with Image.open(nav) as src:
             src = src.convert("RGBA")
@@ -320,55 +330,194 @@ def _avatar(img: Image.Image, cx: int, cy: int, r: int, player: str, nav: str | 
     img.alpha_composite(tile.resize((r * 2, r * 2), Image.Resampling.LANCZOS), (cx - r, cy - r))
 
 
+# 游戏里六维图旁边的字是一种方头方脑的等线字。不带字体文件，自己用折线描：每个字是几条折线，坐标在 1 × 1 的格子里
+# （x 往右、y 往下，0.5 是中线），画的时候按字高和宽高比拉开，线头是圆的、拐角削成小圆角。
+# 照游戏个人卡量的：数字细、每个数字占一样宽（1 是一根竖线，站在格子正中）、数字之间空得很开，小数点塞在两个数字中间；
+# 轴名粗、字挨得近。字宽、字高都把笔画的粗细算在里面（折线画在往里缩半个笔画的框里），所以字和字不会糊在一起。
+_SEG = {
+    "0": [[(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]],
+    "1": [[(.5, 0), (.5, 1)]],
+    "2": [[(0, 0), (1, 0), (1, .5), (0, .5), (0, 1), (1, 1)]],
+    "3": [[(0, 0), (1, 0), (1, 1), (0, 1)], [(.3, .5), (1, .5)]],
+    "4": [[(.8, 1), (.8, 0), (0, .7), (1, .7)]],
+    "5": [[(1, 0), (0, 0), (0, .5), (1, .5), (1, 1), (0, 1)]],
+    "6": [[(1, 0), (0, 0), (0, 1), (1, 1), (1, .5), (0, .5)]],
+    "7": [[(0, 0), (1, 0), (.4, 1)]],
+    "8": [[(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)], [(0, .5), (1, .5)]],
+    "9": [[(1, .5), (0, .5), (0, 0), (1, 0), (1, 1), (0, 1)]],
+    ".": [[(.5, .98), (.5, 1.08)]],
+    "+": [[(0, .5), (1, .5)], [(.5, .16), (.5, .84)]],
+    "-": [[(.1, .5), (.9, .5)]],
+    "A": [[(0, 1), (.32, 0), (.68, 0), (1, 1)], [(.17, .64), (.83, .64)]],
+    "C": [[(1, 0), (0, 0), (0, 1), (1, 1)]],
+    "D": [[(0, 0), (.62, 0), (1, .3), (1, .7), (.62, 1), (0, 1), (0, 0)]],
+    "E": [[(1, 0), (0, 0), (0, 1), (1, 1)], [(0, .5), (.82, .5)]],
+    "H": [[(0, 0), (0, 1)], [(1, 0), (1, 1)], [(0, .5), (1, .5)]],
+    "I": [[(.5, 0), (.5, 1)]],
+    "K": [[(0, 0), (0, 1)], [(1, 0), (.06, .5), (1, 1)]],
+    "M": [[(0, 1), (0, 0), (.5, .58), (1, 0), (1, 1)]],
+    "N": [[(0, 1), (0, 0), (1, 1), (1, 0)]],
+    "O": [[(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]],
+    "P": [[(0, 1), (0, 0), (1, 0), (1, .52), (0, .52)]],
+    "R": [[(0, 1), (0, 0), (1, 0), (1, .52), (0, .52)], [(.45, .52), (1, 1)]],
+    "S": [[(1, 0), (0, 0), (0, .5), (1, .5), (1, 1), (0, 1)]],
+    "T": [[(0, 0), (1, 0)], [(.5, 0), (.5, 1)]],
+    "U": [[(0, 0), (0, 1), (1, 1), (1, 0)]],
+    "Y": [[(0, 0), (.5, .5), (1, 0)], [(.5, .5), (.5, 1)]],
+}
+_SEG_W = {"I": .2, "M": 1.2, " ": .5, "+": .8, "-": .8}      # 窄字 / 宽字占多宽（别的都是 1；数字全是 1，对得齐）
+_SEG_DOT = 0.24                # 小数点：不单独占一格，只把两个数字之间多撑开这么多（占一个字宽的比例）
+
+
+def _seg_round(pts: list, rr: float) -> list:
+    """把折线的拐弯削成小圆角（拐点换成前后各退 rr 的两个点，线的接头再是圆的，看起来就是圆角方块字）。"""
+    closed = len(pts) > 2 and pts[0] == pts[-1]
+    core = pts[:-1] if closed else pts
+    n = len(core)
+    out = []
+    for i, p in enumerate(core):
+        if not closed and i in (0, n - 1):
+            out.append(p)
+            continue
+        a, b = core[i - 1], core[(i + 1) % n]
+        for q in (a, b):
+            dx, dy = q[0] - p[0], q[1] - p[1]
+            ln = math.hypot(dx, dy) or 1.0
+            k = min(rr, ln * 0.45) / ln
+            out.append((p[0] + dx * k, p[1] + dy * k))
+    if closed:
+        out.append(out[0])
+    return out
+
+
+def _seg_layout(text: str, cap: float, aspect: float, gap: float) -> tuple[list, float]:
+    """每个字放哪：[(字, 这格的左边, 这格的宽)]，和整行的宽。"""
+    w = cap * aspect
+    x = 0.0
+    out = []
+    for ch in text:
+        if ch == "." and out:                       # 塞在前后两个字的空当正中
+            out.append((ch, x - gap * w / 2 + _SEG_DOT * w / 2 - 0.5 * w, w))
+            x += _SEG_DOT * w
+            continue
+        gw = _SEG_W.get(ch, 1.0) * w
+        out.append((ch, x, gw))
+        x += gw + gap * w
+    return out, max(0.0, x - gap * w)
+
+
+def _seg_width(text: str, cap: float, aspect: float, gap: float = 0.2) -> float:
+    return _seg_layout(text, cap, aspect, gap)[1]
+
+
+def _seg_text(img: Image.Image, x: float, y: float, text: str, cap: float, fill, *, weight: float = 0.2,
+              aspect: float = 0.77, gap: float = 0.2, anchor: str = "l", outline=(8, 10, 22), ow: float | None = None,
+              rr: float = 0.18) -> float:
+    """在 (x, y) 画一行方头字：y 是字顶，cap 是字高，weight 是笔画粗细（占字高的比例），gap 是字距（占字宽的比例），
+    anchor l / m / r。返回这一行的宽。"""
+    cells, total = _seg_layout(text, cap, aspect, gap)
+    x0 = x - (total / 2 if anchor == "m" else total if anchor == "r" else 0)
+    s = 4
+    sw = max(1.0, cap * weight)
+    ow = max(1.2, cap * 0.075) if ow is None else ow
+    pad = int(sw + ow + 3)
+    lay = Image.new("RGBA", (int((total + pad * 2) * s), int((cap * 1.14 + pad * 2) * s)), (0, 0, 0, 0))
+    d = ImageDraw.Draw(lay)
+    w = cap * aspect
+    strokes = []
+    for ch, cx, gw in cells:
+        iw = max(0.0, gw - sw)                      # 折线画在往里缩半个笔画的框里：字的外沿正好是这一格
+        for line in _SEG.get(ch, []):
+            pts = [((pad + cx + (gw - iw) / 2 + px * iw) * s, (pad + sw / 2 + py * (cap - sw)) * s) for px, py in line]
+            strokes.append(_seg_round(pts, w * rr * s))
+    for width, color in (((sw + ow * 2) * s, tuple(outline) + (255,)), (sw * s, tuple(fill) + (255,))):
+        r = width / 2
+        for pts in strokes:
+            d.line(pts, fill=color, width=max(1, round(width)), joint="curve")
+            for px, py in pts:                                     # 圆线头、圆拐角
+                d.ellipse([px - r, py - r, px + r, py + r], fill=color)
+    small = lay.resize((max(1, lay.width // s), max(1, lay.height // s)), Image.Resampling.LANCZOS)
+    img.alpha_composite(small, (round(x0 - pad), round(y - pad)))
+    return total
+
+
 def _radar_panel(img: Image.Image, x0: int, y0: int, w: int, h: int, vals: list | None) -> None:
-    """游戏个人卡那种六维图：从上面顺时针 NOTES / PEAK / TSUMAMI / TRICKY / HAND-TRIP / ONE-HAND，橙色填充。
-    vals 是 None：只画空的六边形 + 提示怎么填。"""
+    """照游戏个人卡上那个六维图画：黑色的圆底，六条带小刻度的细轴，数据是橙红色的一块（中间亮、边上红）；
+    圈 = 100，超过 100 的角伸到圈外面（爆表）。每个角外面两行：轴名（各用各的颜色）和两位小数的数值（白字），都是方头字带深色描边。
+    从上面顺时针 NOTES / PEAK / TSUMAMI / TRICKY / HAND TRIP / ONE HAND。vals 是 None：只画空的 + 提示怎么填。"""
     empty = not vals
-    vals = vals or [0] * 6
-    vmax = max(vals) if vals else 0
-    top = 100 if vmax <= 100 else (int(vmax / 50) + 1) * 50      # 满格：≤100 按 100，否则取上面一个 50 的整数倍
-    cx, cy, r = x0 + 236, y0 + h // 2 + 2, 106
+    vals = [max(0.0, float(v)) for v in (vals or [0] * 6)]
+    r = int(min((h - 8) / 2.96, w / 3.5))            # 照游戏的比例：上下的字各伸出去半径的 0.47 倍，两侧 0.64 倍
+    cx, cy = x0 + w // 2, y0 + h // 2
     ang = [math.radians(-90 + 60 * k) for k in range(6)]
     pt = lambda k, f: (cx + r * f * math.cos(ang[k]), cy + r * f * math.sin(ang[k]))     # noqa: E731
-    s = 3                                           # 先放大画再缩小，边缘更顺
-    lay = Image.new("RGBA", (w * s, h * s), (0, 0, 0, 0))
-    ld = ImageDraw.Draw(lay)
-    S = lambda p: ((p[0] - x0) * s, (p[1] - y0) * s)                                     # noqa: E731
-    ld.polygon([S(pt(k, 1)) for k in range(6)], fill=(10, 10, 12, 230))
-    for f in (1 / 3, 2 / 3, 1):
-        ld.line([S(pt(k, f)) for k in range(6)] + [S(pt(0, f))], fill=(120, 130, 130, 150), width=2 * s)
-    for k in range(6):
-        ld.line([S((cx, cy)), S(pt(k, 1))], fill=(120, 130, 130, 120), width=s)
+    s = 4                                           # 先放大画再缩小，边缘更顺
+    mg = int(r * (RADAR_OVER - 1)) + 8              # 这一层比名片条大一圈：爆表的角画得出去
+    bx, by = cx - r - mg, cy - r - mg
+    side = (r + mg) * 2
+    S = lambda p: ((p[0] - bx) * s, (p[1] - by) * s)                                     # noqa: E731
+    lay = Image.new("RGBA", (side * s, side * s), (0, 0, 0, 0))
+    ImageDraw.Draw(lay).ellipse([S((cx - r, cy - r)), S((cx + r, cy + r))], fill=(0, 0, 0, 236))
+
+    lw, tick = max(1.3, r * 0.012), max(2.5, r * 0.022)        # 轴线粗细、刻度半长：跟着半径走
+
+    def axes(alpha: int, color=(214, 214, 220)) -> Image.Image:
+        a = Image.new("RGBA", lay.size, (0, 0, 0, 0))
+        ad = ImageDraw.Draw(a)
+        for k in range(6):                          # 轴画到圈边；25 / 50 / 75 各一道和轴垂直的小刻度
+            ad.line([S((cx, cy)), S(pt(k, 1))], fill=color + (alpha,), width=round(lw * s))
+            nx, ny = -math.sin(ang[k]), math.cos(ang[k])
+            for f in (0.25, 0.5, 0.75):
+                px, py = pt(k, f)
+                ad.line([S((px - nx * tick, py - ny * tick)), S((px + nx * tick, py + ny * tick))], fill=color + (alpha,),
+                        width=round(lw * s))
+        return a
+
+    lay = Image.alpha_composite(lay, axes(200))
     if not empty:
-        poly = [S(pt(k, max(0.02, min(1.0, vals[k] / top)))) for k in range(6)]
-        ld.polygon(poly, fill=RADAR_FILL + (215,))
-        ld.line(poly + [poly[0]], fill=(255, 196, 120, 255), width=3 * s, joint="curve")
-    glow = lay.filter(ImageFilter.GaussianBlur(10 * s))
-    small = Image.alpha_composite(glow, lay).resize((w, h), Image.Resampling.LANCZOS)
-    img.alpha_composite(small, (x0, y0))
-    d = ImageDraw.Draw(img)
-    fl = CB._font("latin", 22)
-    for k in range(6):                              # 轴名贴在六边形外面
-        lx, ly = pt(k, 1.0)
-        dx, dy = math.cos(ang[k]), math.sin(ang[k])
-        anchor = ("m" if abs(dx) < 0.3 else ("l" if dx > 0 else "r")) + ("s" if dy < -0.7 else ("t" if dy > 0.7 else "m"))
-        d.text((lx + dx * 14, ly + dy * 12), RADAR_AXES[k], font=fl, fill=RADAR_COLORS[k], anchor=anchor)
-    # 右边列数值
-    tx, ty = x0 + 484, y0 + 44
-    G.draw(d, (tx, y0 + 22), "EFFECT RADAR", CB._chain("latin", 24), (150, 230, 190), anchor="lm")
-    fv = CB._font("latin", 34)
+        poly = [S(pt(k, max(0.03, min(RADAR_OVER, vals[k] / 100)))) for k in range(6)]
+        shape = Image.new("L", lay.size, 0)
+        ImageDraw.Draw(shape).polygon(poly, fill=255)
+        n = 64                                      # 中间亮橙、往外变红：小图上按离中心的远近算，再放大
+        g = Image.new("RGB", (n, n))
+        gp = g.load()
+        for yy in range(n):
+            for xx in range(n):
+                t = min(1.0, math.hypot(xx - n / 2 + .5, yy - n / 2 + .5) / (n / 2) * (r + mg) / (r * 1.05))
+                gp[xx, yy] = tuple(round(a + (b - a) * t) for a, b in zip((255, 108, 34), (234, 50, 28)))
+        fill = g.resize(lay.size, Image.Resampling.BICUBIC).convert("RGBA")
+        fill.putalpha(shape.point(lambda v: 244 if v else 0))
+        lay = Image.alpha_composite(lay, fill)
+        over = axes(135, (255, 214, 190))            # 轴在橙块上还看得见，颜色淡一点
+        over.putalpha(Image.composite(over.getchannel("A"), Image.new("L", lay.size, 0), shape))
+        lay = Image.alpha_composite(lay, over)
+        ImageDraw.Draw(lay).line(poly + [poly[0], poly[1]], fill=(255, 150, 84, 255), width=round(lw * 1.1 * s),
+                                 joint="curve")
+    disc = lay.resize((side, side), Image.Resampling.LANCZOS)
+    # 贴到图上：只留名片条这一块里的（爆表的角可以伸到条内任何地方，但不出条）
+    clip = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    clip.paste(disc, (bx, by), disc)
+    keep = Image.new("L", img.size, 0)
+    ImageDraw.Draw(keep).rectangle([x0, y0 - 8, x0 + w, y0 + h + 8], fill=255)
+    clip.putalpha(Image.composite(clip.getchannel("A"), Image.new("L", img.size, 0), keep))
+    img.alpha_composite(clip)
     if empty:
-        for i, line in enumerate(("还没填六维图", "照游戏个人卡上的形状", "发 /sdvx 雷达 + 6 个数")):
-            G.draw(d, (tx, ty + 50 + i * 46), line, CB._chain("sc", 28 if i == 0 else 24),
-                   (230, 240, 236) if i == 0 else (150, 200, 180), anchor="lm")
-        return
-    for k in range(6):
-        yy = ty + 20 + k * 42
-        d.rounded_rectangle([tx, yy - 13, tx + 8, yy + 13], 3, fill=RADAR_COLORS[k])
-        d.text((tx + 20, yy), RADAR_AXES[k], font=CB._font("latin", 24), fill=(225, 238, 232), anchor="lm")
-        v = vals[k]
-        txt = str(int(v)) if float(v).is_integer() else f"{v:.2f}".rstrip("0").rstrip(".")
-        d.text((x0 + w - 24, yy), txt, font=fv, fill=(255, 255, 255), anchor="rm")
+        d = ImageDraw.Draw(img)
+        G.draw(d, (cx, cy - r * 0.15), "还没填六维图", CB._chain("sc", max(12, round(r * 0.2))), (236, 240, 238), anchor="mm")
+        G.draw(d, (cx, cy + r * 0.17), "/sdvx 雷达 + 6 个数", CB._chain("sc", max(11, round(r * 0.165))), (160, 206, 188),
+               anchor="mm")
+    # 字的位置和大小都是照游戏个人卡量出来的（以圆心为原点、半径为 1）：轴名字高 0.145、数值字高 0.164；
+    # 上下两项在圈外居中；两侧四项的中心在 ±1.14，上面两项贴着圈的上沿往上放、下面两项往下放。字压在橙块上面。
+    name_h, val_h = r * 0.155, r * 0.178
+    spots = ((0, -1.39, -1.14), (1.12, -0.95, -0.69), (1.14, 0.67, 0.92), (0, 1.13, 1.38), (-1.14, 0.67, 0.92),
+             (-1.13, -0.95, -0.69))
+    for k, (fx, fy_name, fy_val) in enumerate(spots):
+        txt = "--.--" if empty else f"{vals[k]:.2f}"
+        mx = cx + fx * r
+        _seg_text(img, mx, cy + fy_name * r - name_h / 2, RADAR_LABELS[k], name_h, RADAR_COLORS[k], weight=0.19,
+                  aspect=0.8, gap=0.15, anchor="m", rr=0.07)
+        _seg_text(img, mx, cy + fy_val * r - val_h / 2, txt, val_h, (238, 240, 246), weight=0.13, aspect=0.76,
+                  gap=0.36, anchor="m", rr=0.13)
 
 
 def _nav_panel(img: Image.Image, x0: int, y0: int, w: int, h: int, nav: str, name: str) -> None:
@@ -426,7 +575,7 @@ def render(rows: list[K.SdvxRow], out_path: Path, *, player: str = "", jackets: 
            font_path: str | None = None, tz: str = "Australia/Sydney", bg_path=None,
            footer_left: str = "Generated by AstrBot", count: int = 0, all_rows: list | None = None,
            max_kb: int = 3000, show_ex: bool = True, radar: list | None = None, nav: str | None = None,
-           nav_name: str = "") -> Path:
+           nav_name: str = "", tags: tuple | None = None) -> Path:
     jackets = jackets or {}
     rows = rows[:50]
     all_rows = all_rows if all_rows is not None else rows
@@ -456,7 +605,7 @@ def render(rows: list[K.SdvxRow], out_path: Path, *, player: str = "", jackets: 
     G.draw(d, (nx, py + 124), CB._fit(d, player or "?", c_name, px + pw - 50 - nx), c_name, (255, 255, 255), anchor="lm")
     date = datetime.now(ZoneInfo(tz)).strftime("%Y/%m/%d")
     tx = nx
-    for text in ("手动传分", f"已传 {count or n} 张", date):
+    for text in ((*tags, date) if tags else ("手动传分", f"已传 {count or n} 张", date)):
         c_tag = CB._chain("sc", 23)
         tw = int(G.width(text, c_tag)) + 28
         CB._overlay(img, lambda od: od.rounded_rectangle([tx, py + 182, tx + tw, py + 218], 18, fill=(70, 255, 160, 34),

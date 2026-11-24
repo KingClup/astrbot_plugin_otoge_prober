@@ -179,12 +179,13 @@ def test_http_flow(caplog):
     async def go():
         c = await _client(web)
         try:
-            r = await c.get("/")
+            r = await c.get("/bind")
             html = await r.text()
-            assert r.status == 200 and "Bot&lt;x&gt;" in html and "<script src=\"/app.js\">" in html
+            assert r.status == 200 and "Bot&lt;x&gt;" in html and "<script src=\"/app.js?v=300\">" in html and "<script src=\"/yume.js?v=300\">" in html
             assert "script-src 'self'" in r.headers["Content-Security-Policy"]
             assert r.headers["X-Frame-Options"] == "DENY" and r.headers["Cache-Control"] == "no-store"
             assert (await c.get("/app.js")).status == 200 and (await c.get("/app.css")).status == 200
+            assert (await c.get("/yume.js")).status == 200 and (await c.get("/yume.css")).status == 200
             assert (await c.get("/../main.py")).status == 404
             assert (await c.get("/api/session")).status == 401
             tok = web.sessions.issue("123456789", "aiocqhttp:FriendMessage:123456789")

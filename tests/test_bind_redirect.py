@@ -34,7 +34,7 @@ def _plugin(M, ready=True, group_link=True):
 
     async def web(event, ctx, game=""):
         return Reply(at=None if ctx.private else ctx.uid).say(
-            "你的绑定链接（10 分钟内有效）：\nhttps://bind.example/#t=x" if group_link else "私聊我发「/网页绑定」拿链接～")
+            "你的绑定链接（10 分钟内有效）：\nhttps://bind.example/bind#t=x" if group_link else "私聊我发「/网页绑定」拿链接～")
     p._web_bind_reply = web
     return p
 
@@ -47,7 +47,7 @@ async def test_unbound_reply_becomes_web_link():
     w = await p._unbound_to_web(None, ctx, "chu", r)
     text = "\n".join(w.texts)
     assert "按 QQ 在落雪没找到你" in text and "你还没绑定中二国服，点链接在网页上绑定" in text
-    assert "https://bind.example/#t=x" in text and w.at == "1"
+    assert "https://bind.example/bind#t=x" in text and w.at == "1"
     assert "/chu 绑定 国服" not in text
 
 

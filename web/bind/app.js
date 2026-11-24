@@ -1,18 +1,10 @@
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
-  // 看板娘图片取不到（公开版包里没有这些图）：这张图不占地方，顶栏也不给它留位置
-  (function () {
-    function isGirl(t) { return t && t.tagName === "IMG" && /\/img\/yume-/.test(t.getAttribute("src") || ""); }
-    function mark(t, missing) {
-      t.classList.toggle("girl-missing", missing);
-      if (t.id === "heroGirl") document.body.classList.toggle("no-hero-girl", missing);
-    }
-    document.addEventListener("error", function (e) { if (isGirl(e.target)) mark(e.target, true); }, true);
-    document.addEventListener("load", function (e) { if (isGirl(e.target)) mark(e.target, false); }, true);
-    var imgs = document.querySelectorAll('img[src^="/img/yume-"]');
-    for (var i = 0; i < imgs.length; i++) if (imgs[i].complete && imgs[i].naturalWidth === 0) mark(imgs[i], true);
-  })();
+  // 看板娘、背景剪影、转场、判定字都在 /yume.js（三个网站共用）。它没加载上也不影响绑定。
+  var Y = window.Mascot || null;
+  var introFig = null, mate = null, confirmBust = null, lastCode = "";
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
   var params = new URLSearchParams(location.hash.slice(1));
   var token = params.get("t") || "";
   // 令牌只在 # 后面：存进本标签页的 sessionStorage，再从地址栏抹掉，防止截图 / 转发链接时带出去
@@ -105,9 +97,9 @@
     entered = true; clearTimeout(autoTimer);
     try { sessionStorage.setItem(introKey, "1"); } catch (e) {}
     var intro = $("intro");
-    if (calm) { intro.hidden = true; showMain(false); return; }
+    if (calm) { intro.hidden = true; showMain(false); showMate(); return; }
     intro.classList.add("leave");
-    setTimeout(function () { intro.hidden = true; showMain(true); window.scrollTo(0, 0); }, 340);
+    setTimeout(function () { intro.hidden = true; showMain(true); window.scrollTo(0, 0); showMate(); }, 340);
   }
   function stopAuto() {
     if (entered || !autoTimer) return;
@@ -119,6 +111,9 @@
     var b = $("enter");
     b.disabled = false; b.textContent = "开始绑定"; b.classList.add("count");
     $("autoNote").textContent = "不点也行，3 秒后自己进去";
+    $("helloSub").textContent = "核对好了，\n进去吧。";
+    document.querySelector(".pass").classList.add("issued");
+    if (introFig) introFig.pose("card");
     autoTimer = setTimeout(enter, 3000);
   }
 
@@ -127,6 +122,8 @@
     dropIntro(); showMain(false); $("remain").hidden = true;
     $("app").hidden = true; $("expired").hidden = false;
     $("who").textContent = "";
+    $("mate").hidden = true;
+    if (Y) Y.bust($("expiredGirl"), "pout", .5);
     if (claimed) {
       $("expiredTitle").textContent = "这个链接已经确认给别的设备了";
       $("expiredWhy").textContent = "群里发的链接要本人在 QQ 回确认码才能用，它已经确认给另一个浏览器了（或者被点开太多次）。";
@@ -247,16 +244,65 @@
     $("consentText").textContent = text || "";
     $("consent").classList.toggle("show", secret);
     $("form").hidden = false;
-    hideResult();
+    hideResult(); mood();
   }
 
   function goText(m) { return m === "lxoauth" ? "去落雪授权" : m === "scores" ? "进传分网站" : "绑定"; }
-  function hideResult() { var r = $("result"); r.hidden = true; r.textContent = ""; $("resultGirl").hidden = true; }
+  function hideResult() { var r = $("result"); r.hidden = true; r.textContent = ""; }
   function showResult(ok, msg) {
-    var r = $("result"); r.hidden = true; $("resultGirl").hidden = true;   // 先藏再显示：每次结果都重新演一下
+    var r = $("result"); r.hidden = true;                                   // 先藏再显示：每次结果都重新演一下
     r.className = "result " + (ok ? "ok" : "bad"); r.textContent = msg;
     void r.offsetWidth;
-    $("resultGirl").hidden = !ok; r.hidden = false;
+    r.hidden = false;
+    if (!ok && mate) { mate.pose("surprise"); setTimeout(mood, 2400); }
+  }
+
+  // ---------- 角落里的看板娘：填表时安静待着，只在该有反应的时候换个样子 ----------
+  var SECRET_INPUTS = ["password", "rinPassword", "clal", "lxKey", "rinToken", "rinCode"];
+  function mood() {
+    if (!mate) return;
+    var a = document.activeElement;
+    if (state.busy) mate.pose("think");
+    else if (a && SECRET_INPUTS.indexOf(a.id) >= 0) mate.pose("shh");       // 在填密码 / 密钥：嘘，不看
+    else if (state.method === "scores") mate.pose("card");
+    else mate.pose("");
+  }
+  function showMate() {
+    if (!Y || mate || $("app").hidden) return;
+    Y.ready(function (ok) {
+      if (!ok || mate) return;
+      $("mate").hidden = false;
+      mate = Y.figure($("mate"), { view: .34 });
+      mood();
+    });
+  }
+
+  // ---------- 绑好了：跳起来、落地、比个心，判定字 ALL PERFECT ----------
+  var JUMP = [[0, "a:unfold"], [110, "a:tuck2"], [230, "a:jump"], [620, "a:tuck2"], [740, "a:unfold"], [860, "a:fall"], [980, "a:touch"], [1100, "p:land"], [1250, "p:settle"]];
+  function celebrate(after) {
+    if (!Y || Y.calm) { after(); return; }
+    Y.ready(function (ok) {
+      if (!ok) { Y.judge("ALL PERFECT", { sub: "绑好了" }); after(); return; }
+      var layer = el("div", "fete"), girl = el("div", "fete-girl"), gone = false, timer = 0;
+      layer.appendChild(el("div", "fete-arch"));
+      layer.appendChild(girl);
+      layer.appendChild(el("p", "fete-tip", "点一下继续"));
+      document.body.appendChild(layer);
+      var fig = Y.figure(girl, { view: 1 });
+      function bye() {
+        if (gone) return;
+        gone = true; clearTimeout(timer);
+        layer.classList.add("bye");
+        setTimeout(function () { fig.stop(); layer.remove(); }, 340);
+        after();
+      }
+      setTimeout(function () {
+        fig.play(JUMP, "heart");
+        setTimeout(function () { Y.judge("ALL PERFECT", { sub: "绑好了", top: "20%" }); }, 260);
+      }, 220);
+      timer = setTimeout(bye, 3600);
+      layer.addEventListener("click", bye);
+    });
   }
 
   function submit(ev) {
@@ -301,19 +347,28 @@
       return;
     }
     state.busy = true; $("go").disabled = true; $("go").classList.add("busy"); $("go").textContent = "正在验证";
-    hideResult();
+    hideResult(); mood();
     api("/api/bind", body).then(function (j) {
       if (j._status === 401 || j._status === 409) {
         showResult(false, j.message || "链接已过期");
         setTimeout(function () { expired(j._status === 409); }, 2500); return;
       }
-      showResult(!!j.ok, j.message || "出错了，稍后再试");
+      if (j.ok) {
+        ["clal", "lxKey", "password", "rinPassword", "rinCode", "rinToken"].forEach(function (id) { $(id).value = ""; });
+        celebrate(function () {                   // 庆祝完：结果写出来，「已经绑好的」那一排重新亮一遍
+          showResult(true, j.message || "绑好了");
+          if (j.bound) { renderBound(j.bound); $("bound").classList.remove("lit"); void $("bound").offsetWidth; $("bound").classList.add("lit"); }
+          if (mate) { mate.pose("heart"); setTimeout(mood, 4000); }
+        });
+        return;
+      }
+      showResult(false, j.message || "出错了，稍后再试");
       if (j.bound) renderBound(j.bound);
-      if (j.ok) { ["clal", "lxKey", "password", "rinPassword", "rinCode", "rinToken"].forEach(function (id) { $(id).value = ""; }); }
     }).catch(function () {
       showResult(false, "网络不通，检查一下网络再点一次");
     }).then(function () {
       state.busy = false; $("go").disabled = false; $("go").classList.remove("busy"); $("go").textContent = goText(state.method);
+      if (!mate || mate.now() === "think") mood();
     });
   }
 
@@ -361,7 +416,13 @@
     dropIntro(); showMain(false);
     $("app").hidden = true; $("expired").hidden = true; $("remain").hidden = true;
     $("confirm").hidden = false;
-    $("confirmCode").textContent = j.code || "----";
+    var code = j.code || "----";
+    if (code !== lastCode) {                       // 每几秒会再问一次，码没变就不重演
+      lastCode = code;
+      var box = $("confirmCode"); box.textContent = "";
+      code.split("").forEach(function (ch, i) { var d = el("span", "digit", ch); d.style.setProperty("--i", String(i)); box.appendChild(d); });
+    }
+    if (Y && !confirmBust) confirmBust = Y.bust($("confirmGirl"), "shh", .5);
     $("who").textContent = "";
     clearTimeout(waitTimer);
     waitTimer = setTimeout(checkConfirm, 2500);
@@ -372,7 +433,16 @@
     api("/api/session").then(function (j) {
       if (!waiting) return;
       if (j._status === 200 && j.pending) { showConfirm(j); return; }
-      if (j._status === 200) { waiting = false; $("confirm").hidden = true; ready(j); return; }
+      if (j._status === 200) {
+        waiting = false;
+        if (!Y || Y.calm) { $("confirm").hidden = true; ready(j); return; }
+        if (confirmBust) confirmBust.pose("clap");
+        $("confirmWait").textContent = "收到了，是你本人。";
+        $("confirm").classList.add("done");
+        Y.judge("PERFECT", { small: true, sub: "确认好了", top: "50%" });
+        setTimeout(function () { $("confirm").hidden = true; ready(j); }, 1300);
+        return;
+      }
       if (j._status === 401 || j._status === 409) { waiting = false; $("confirm").hidden = true; expired(j._status === 409); return; }
       waitTimer = setTimeout(checkConfirm, 4000);          // 429 / 5xx：慢一点接着问
     }).catch(function () { if (waiting) waitTimer = setTimeout(checkConfirm, 4000); });   // 断网 / 页面在后台：接着问
@@ -402,10 +472,16 @@
     state.expires = Date.now() + (j.expires_in || 0) * 1000;
     var who = $("who"); who.textContent = "";
     var b = document.createElement("b"); b.textContent = j.qq;
-    who.appendChild(document.createTextNode("绑到 QQ ")); who.appendChild(b);
+    who.appendChild(document.createTextNode(j.official ? "绑到你在官方机器人的账号 " : "绑到 QQ ")); who.appendChild(b);
+    if (j.official) {                              // 从 QQ 官方机器人来的：那边没有 QQ 号，也就不能「不填就按 QQ 查」
+      $("passWho").textContent = "持有人";
+      $("dfName").placeholder = "水鱼用户名";
+      document.querySelector('label[for="dfName"] .opt').textContent = "要填";
+    }
     $("remain").hidden = false;
     renderBound(j.bound || {});
     $("app").hidden = false;
+    if (entered) showMate();
     var g = params.get("g");
     if (g === "mai" || g === "chu" || g === "geki" || g === "sdvx") pickGame(g);
     $("passQQ").textContent = j.qq;
@@ -414,8 +490,17 @@
     if (!entered) introReady();
   }
 
+  if (Y) {
+    Y.sky($("sky"), null, window.innerWidth < 720 ? 6 : 11);
+    Y.links();
+    var NOTE = { mai: "mai-star", chu: "chu-air", geki: "geki-bell", sdvx: "sdvx-fx" };
+    document.querySelectorAll(".game").forEach(function (b) { b.appendChild(Y.note(NOTE[b.dataset.game], "game-note")); });
+  }
+  $("form").addEventListener("focusin", mood);
+  $("form").addEventListener("focusout", function () { setTimeout(mood, 0); });
   if (!token) { expired(); return; }
   if (introSeen()) { dropIntro(); showMain(false); }
+  else if (Y) introFig = Y.figure($("introGirl"), { view: .56, pose: "think", track: true });
   api("/api/session").then(function (j) {
     if (j._status === 200 && j.pending) { showConfirm(j); return; }
     ready(j);

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-own-wipe>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#fbfcfe" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1626" media="(prefers-color-scheme: dark)">
+<title>{{BOT}} 音游查分</title>
+<script src="/yume.js?v=300"></script>
+<script src="/home/app.js?v=300"></script>
+<link rel="stylesheet" href="/home/app.css?v=300">
+</head>
+<body class="{{BODY}}">
+
+<!-- 开场：三套分镜随机放一套（脚本给 <html> 挂 op-a / op-b / op-c）。同一个标签页只演一次，点一下跳过。
+     a「跳出来」：轨道一条条落下拼成底，音符打出站名，她带着两个剪影残像从底下跳上来。
+     b「飘起来」：夜色里一轮千鸟格的月亮，她慢慢飘上去，旁边一行竖排的字。
+     c「走过来」：白天，千鸟格的地面往后走，各游戏的音符从身后飘过，她侧身走进来、转身、行一个提裙礼。
+     收场时这一层自己撤走，她从这里直接飞到主页的站位上，路上一帧一帧换姿势，落定再放下头发。 -->
+<div class="op" id="op" aria-hidden="true">
+  <div class="op-bg"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="op-deco">
+    <div class="op-type op-type-l"><span>音游查分音游查分</span></div>
+    <div class="op-type op-type-r"><span>查分音游查分音游</span></div>
+    <div class="op-stars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="op-street">
+      <div class="op-sign"><span>音游查分　音游查分　音游查分　音游查分　</span></div>
+      <svg viewBox="0 0 48 48"><use href="#n-mai-star"/></svg><svg viewBox="0 0 48 48"><use href="#n-chu-air"/></svg><svg viewBox="0 0 48 48"><use href="#n-geki-bell"/></svg>
+      <svg viewBox="0 0 48 48"><use href="#n-sdvx-fx"/></svg><svg viewBox="0 0 48 48"><use href="#n-mai-hold"/></svg><svg viewBox="0 0 48 48"><use href="#n-sdvx-laser"/></svg>
+      <i class="op-floor"></i>
+    </div>
+    <div class="op-frame"><i></i><i></i><i></i><i></i></div>
+    <span class="op-skip">点一下跳过</span>
+  </div>
+  <div class="op-stage">
+    <div class="op-cast" id="op-cast">
+      <div class="op-prop">
+        <i class="op-disc"></i>
+        <svg class="op-halo" viewBox="0 0 200 200"><circle class="ring" cx="100" cy="100" r="97" pathLength="100"/></svg>
+        <i class="op-echo e1"></i><i class="op-echo e2"></i>
+        <span class="op-pop"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      </div>
+      <div class="op-hop"><div class="op-fig"><i class="op-shadow"></i><img class="op-f" id="op-girl" alt=""><img class="op-f" id="op-g2" alt=""></div></div>
+    </div>
+    <div class="op-words">
+      <div class="op-notes">
+        <span class="n t-mai"><b></b><em>PERFECT</em></span>
+        <span class="n t-chu"><b></b><em>PERFECT</em></span>
+        <span class="n t-geki"><b></b><em>PERFECT</em></span>
+        <span class="n t-sdvx"><b></b><em>PERFECT</em></span>
+      </div>
+      <div class="op-title"><span class="t-mai">音</span><span class="t-chu">游</span><span class="t-geki">查</span><span class="t-sdvx">分</span></div>
+      <div class="op-under">
+        <div class="rule"><i></i><i></i></div>
+        <p class="op-sub">{{BOT}}，开演</p>
+      </div>
+      <p class="op-verse"><span>今</span><span>天</span><span>也</span><span>来</span><span>查</span><span>分</span><span>吧</span></p>
+    </div>
+  </div>
+</div>
+<div class="wipe" id="wipe" aria-hidden="true"><i></i><i></i>
+  <svg class="wipe-halo" viewBox="0 0 160 64"><ellipse class="rip" cx="80" cy="32" rx="70" ry="23"/><ellipse class="ring" cx="80" cy="32" rx="70" ry="23" pathLength="100"/><path class="star" d="M138 4 Q139.8 15.2 151 17 Q139.8 18.8 138 30 Q136.2 18.8 125 17 Q136.2 15.2 138 4Z"/></svg>
+</div>
+<!-- 背景里慢慢往下落的东西：四个游戏各自的音符剪影（自己画的通用形状），脚本从这里取 -->
+<svg class="defs" width="0" height="0" aria-hidden="true"><symbol id="n-mai-star" viewBox="0 0 48 48"><g fill="currentColor"><path fill-rule="evenodd" d="M24.00 3.00 L29.64 17.23 L44.92 18.20 L33.13 27.97 L36.93 42.80 L24.00 34.60 L11.07 42.80 L14.87 27.97 L3.08 18.20 L18.36 17.23Z M24.00 13.50 L26.94 20.95 L34.94 21.45 L28.76 26.55 L30.76 34.30 L24.00 30.00 L17.24 34.30 L19.24 26.55 L13.06 21.45 L21.06 20.95Z"/></g></symbol><symbol id="n-mai-hold" viewBox="0 0 48 48"><g fill="currentColor"><path fill-rule="evenodd" d="M24 3 L36 10 L36 38 L24 45 L12 38 L12 10 Z M24 10 L18 13.5 L18 34.5 L24 38 L30 34.5 L30 13.5 Z"/></g></symbol><symbol id="n-mai-touch" viewBox="0 0 48 48"><g fill="currentColor"><path d="M24 20 L15 6 H33 Z M24 28 L33 42 H15 Z M20 24 L6 33 V15 Z M28 24 L42 15 V33 Z"/><circle cx="24" cy="24" r="2.6"/></g></symbol><symbol id="n-chu-air" viewBox="0 0 48 48"><g ><rect x="4" y="35" width="40" height="7" rx="2" fill="currentColor"/><path d="M11 28 L24 18 L37 28 M11 16 L24 6 L37 16" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></g></symbol><symbol id="n-chu-tap" viewBox="0 0 48 48"><g fill="currentColor"><path fill-rule="evenodd" d="M6 17 h36 a3 3 0 0 1 3 3 v8 a3 3 0 0 1 -3 3 h-36 a3 3 0 0 1 -3 -3 v-8 a3 3 0 0 1 3 -3 Z M10 22.4 v3.2 h28 v-3.2 Z"/></g></symbol><symbol id="n-geki-bell" viewBox="0 0 48 48"><g fill="currentColor"><path fill-rule="evenodd" d="M3.50 24.00 a20.50 20.50 0 1 0 41.00 0 a20.50 20.50 0 1 0 -41.00 0Z M15.30 31.20 a4.90 4.90 0 1 0 9.80 0 a4.90 4.90 0 1 0 -9.80 0Z M23.3 12.5 h3 v19 h-3 Z M26.3 12.5 c1.2 4.2 6.6 5 7.4 10.4 c-2.2-2.9-5.2-3.4-7.4-3.6 Z"/></g></symbol><symbol id="n-geki-side" viewBox="0 0 48 48"><g fill="currentColor"><rect x="5" y="3" width="5" height="42" rx="1.5"/><path d="M13 9 L39 24 L13 39 Z"/></g></symbol><symbol id="n-sdvx-fx" viewBox="0 0 48 48"><g fill="currentColor"><rect x="3" y="14" width="42" height="20" rx="1.5"/></g></symbol><symbol id="n-sdvx-bt" viewBox="0 0 48 48"><g fill="currentColor"><rect x="13" y="19" width="22" height="10" rx="1.2"/></g></symbol><symbol id="n-sdvx-laser" viewBox="0 0 48 48"><g fill="none" stroke="currentColor"><path d="M11 46 V28 H37 V2" stroke-width="7.5" stroke-linejoin="miter"/></g></symbol></svg>
+<div class="sky" id="sky" aria-hidden="true"></div>
+<div class="prog" aria-hidden="true"><i></i></div>
+
+<div class="page">
+
+  <header>
+    <div class="bar">
+      <span class="brand">{{BOT}} 音游查分</span>
+      <nav class="nav" aria-label="站内">
+        <a href="/bind">绑定</a>
+        <a class="nav-scores" href="/scores">传分</a>
+      </nav>
+    </div>
+    <div class="rule" aria-hidden="true"><i></i><i></i></div>
+  </header>
+
+  <main>
+    <section class="stage" id="stage">
+      <div class="stage-text">
+        <h1 class="hello" id="hello">查分的事<br>从这里进</h1>
+        <p class="hello-sub">{{BOT}} 是住在 QQ 群里的音游查分 bot。绑账号、传成绩的网站，入口都在下面。</p>
+      </div>
+      <div class="window" id="window" aria-hidden="true">
+        <div class="arch"></div>
+        <i class="spark s1"></i><i class="spark s2"></i><i class="spark s3"></i>
+        <svg class="halo" viewBox="0 0 120 70">
+          <ellipse class="ring" cx="60" cy="42" rx="44" ry="11"/>
+          <path class="star" d="M92 6 Q93.4 15.6 103 17 Q93.4 18.4 92 28 Q90.6 18.4 81 17 Q90.6 15.6 92 6Z"/>
+          <path class="star s" d="M24 14 Q24.8 19.2 30 20 Q24.8 20.8 24 26 Q23.2 20.8 18 20 Q23.2 19.2 24 14Z"/>
+        </svg>
+        <div class="cast" id="cast"><div class="cast-in" id="cast-in">
+          <img class="girl" id="girl" src="/img/yume-full.webp?v=305" alt="" decoding="async">
+          <canvas class="rig" id="rig"></canvas>
+        </div><img class="act" id="act" alt=""><img class="act" id="act2" alt=""></div>
+        <div class="vn" id="vn">
+          <span class="vn-name">{{BOT}}</span><span class="vn-line" id="vn-line"></span>
+          <span class="vn-tip">点一下</span>
+          <svg class="vn-tap" viewBox="0 0 20 24"><circle class="rip" cx="3" cy="2" r="7"/><path class="cur" d="M3 2 L3 18 L7.2 14.4 L10 21 L12.6 19.9 L9.8 13.4 L15.4 13.4 Z"/></svg>
+        </div>
+      </div>
+    </section>
+
+    <div class="band" role="group" aria-label="能查：舞萌 DX、中二节奏、音击、SOUND VOLTEX。国际服、日服、国服、私服都行。">
+      <div class="band-run" aria-hidden="true">
+        <span class="band-set"><b class="t-mai">舞萌 DX</b><i></i><b class="t-chu">中二节奏</b><i></i><b class="t-geki">音击</b><i></i><b class="t-sdvx">SOUND VOLTEX</b><i></i><em>国际服</em><em>日服</em><em>国服</em><em>私服</em><i></i></span>
+        <span class="band-set"><b class="t-mai">舞萌 DX</b><i></i><b class="t-chu">中二节奏</b><i></i><b class="t-geki">音击</b><i></i><b class="t-sdvx">SOUND VOLTEX</b><i></i><em>国际服</em><em>日服</em><em>国服</em><em>私服</em><i></i></span>
+      </div>
+    </div>
+
+    <h2 class="pick fx-in">要去哪边</h2>
+    <div class="doors">
+
+      <article class="pass fx-in">
+        <svg class="bow" aria-hidden="true" width="44" height="30" viewBox="0 0 44 30"><path class="bow-wing" d="M2 4 Q10 1 19 13 L19 17 Q10 29 2 26 Q6 15 2 4Z M42 4 Q34 1 25 13 L25 17 Q34 29 42 26 Q38 15 42 4Z"/><path class="bow-gem" d="M22 20.5 C17.5 17 16.5 14.2 17.6 12.4 C18.7 10.7 21 10.9 22 12.7 C23 10.9 25.3 10.7 26.4 12.4 C27.5 14.2 26.5 17 22 20.5Z"/></svg>
+        <div class="pass-head">
+          <h3 class="pass-title">绑定账号</h3>
+          <span class="pass-host" data-path="/bind">/bind</span>
+        </div>
+        <p class="pass-desc">把查分账号绑到你的 QQ 上。密码只填在网页里，不进聊天记录。</p>
+        <ul class="plays">
+          <li class="t-mai">舞萌 DX<small>/mai</small></li>
+          <li class="t-chu">中二节奏<small>/chu</small></li>
+          <li class="t-geki">音击<small>/geki</small></li>
+          <li class="t-sdvx">SDVX<small>/sdvx</small></li>
+        </ul>
+        <dl class="pass-grid">
+          <div><dt>先在 QQ 发</dt><dd><code>/网页绑定</code></dd></div>
+          <div><dt>链接有效</dt><dd>10 分钟</dd></div>
+        </dl>
+        <div class="pass-cut" aria-hidden="true"></div>
+        <a class="go" href="/bind"><span>打开绑定站</span><span class="arrow" aria-hidden="true">→</span></a>
+        <p class="pass-note">没带链接直接进去会显示「链接已失效」，回 QQ 要一条就行。</p>
+      </article>
+
+      <article class="pass pass-scores fx-in">
+        <svg class="bow" aria-hidden="true" width="44" height="30" viewBox="0 0 44 30"><path class="bow-wing" d="M2 4 Q10 1 19 13 L19 17 Q10 29 2 26 Q6 15 2 4Z M42 4 Q34 1 25 13 L25 17 Q34 29 42 26 Q38 15 42 4Z"/><path class="bow-gem" d="M22 20.5 C17.5 17 16.5 14.2 17.6 12.4 C18.7 10.7 21 10.9 22 12.7 C23 10.9 25.3 10.7 26.4 12.4 C27.5 14.2 26.5 17 22 20.5Z"/></svg>
+        <div class="pass-head">
+          <h3 class="pass-title">传分网站</h3>
+          <span class="pass-host" data-path="/scores">/scores</span>
+        </div>
+        <p class="pass-desc">SDVX 和音击官服没法自动查，自己把成绩传上来，照样出成绩图。</p>
+        <div class="gates">
+          <a class="gate gate-sdvx" href="/scores"><span class="dn">SDVX</span><span class="ds">VOLFORCE</span></a>
+          <a class="gate gate-geki" href="/scores"><span class="dn">音击</span><span class="ds">RATING</span></a>
+        </div>
+        <dl class="pass-grid">
+          <div><dt>要传分先在 QQ 发</dt><dd><code>/传分</code></dd></div>
+          <div><dt>登录一次</dt><dd>30 天免登录</dd></div>
+        </dl>
+        <div class="pass-cut" aria-hidden="true"></div>
+        <a class="go" href="/scores"><span>打开传分站</span><span class="arrow" aria-hidden="true">→</span></a>
+        <p class="pass-note">不登录也能进去逛曲库、看定数。</p>
+      </article>
+
+    </div>
+
+    <section class="say">
+      <div>
+        <h2 class="pick fx-in">在 QQ 里这样发</h2>
+        <p class="say-lead">私聊和群里都能发。点一下指令就复制，回 QQ 粘贴发出去。</p>
+      </div>
+      <ol class="thread fx-in">
+        <li><button type="button" class="cmd" data-cmd="/查分 帮助">/查分 帮助</button><p>全部指令的总览图，第一次用先看这张。</p></li>
+        <li><button type="button" class="cmd" data-cmd="/网页绑定">/网页绑定</button><p>拿一条只给你用的绑定链接。</p></li>
+        <li><button type="button" class="cmd" data-cmd="/mai b50">/mai b50</button><p>出舞萌 B50 图。中二 <code>/chu</code>、音击 <code>/geki</code>、SDVX <code>/sdvx</code> 同理。</p></li>
+        <li class="li-scores"><button type="button" class="cmd" data-cmd="/传分">/传分</button><p>拿传分网站的登录链接。</p></li>
+        <li><button type="button" class="cmd" data-cmd="/猜歌">/猜歌</button><p>群里一起猜歌，还有 <code>/猜曲绘</code>。</p></li>
+      </ol>
+    </section>
+
+    <div class="peek fx-in" id="peek" aria-hidden="true">
+      <p class="peek-say">查完了，回群里见。</p>
+      <img class="peek-girl" src="/img/yume-full-peace.webp?v=305" alt="" loading="lazy" decoding="async">
+    </div>
+  </main>
+
+  <footer class="foot">
+    <svg class="whale" aria-hidden="true" width="34" height="22" viewBox="0 0 34 22"><path class="w-body" d="M3 13 C3 7 9 4 16 4 C23 4 27 8 28 12 C29 10 30 8.4 33 8 C32.4 10.6 32.6 12.6 33.6 15 C30.6 15 29 14.2 28 13.4 C26.6 17.4 22 19.6 15.6 19.6 C8.6 19.6 3 17.6 3 13Z"/><path class="w-belly" d="M3.4 14.6 C7 16.6 16 17.2 24.4 15 C22 18.2 18.6 19.6 15.6 19.6 C9.4 19.6 4.6 18 3.4 14.6Z"/><circle class="w-eye" cx="9" cy="11.6" r="1.1"/><path class="w-spout" d="M14 3 Q13 0.6 11 1 M14 3 Q15 0.6 17 1"/></svg>
+    <p>{{BOT}} 音游查分 · 插件开源在 <a href="https://github.com/KingClup/astrbot_plugin_otoge_prober" rel="noopener">KingClup/astrbot_plugin_otoge_prober</a></p>
+    <p>各游戏的名称和商标归各自权利方所有，本站和官方没有关系。<button type="button" class="replay" id="replay" hidden>再看一遍开场</button></p>
+  </footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+</body>
+</html>

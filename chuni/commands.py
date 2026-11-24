@@ -250,6 +250,8 @@ class ChuCommands:
             return await self._bind_priv(ctx, server, rest)
         if server == "cn":
             name = " ".join(rest).strip()
+            if not name and not str(ctx.uid).isdigit():      # QQ 官方机器人那边拿不到 QQ 号
+                return Reply().say("这边拿不到你的 QQ 号，带上水鱼用户名再发一次：/chu 绑定 国服 <水鱼用户名>")
             binding = {"username": name} if name else {"qq": ctx.uid}
             try:
                 prof = await asyncio.wait_for(self.svc.bind_cn(ctx.uid, binding), 30)
@@ -493,7 +495,9 @@ class ChuCommands:
             return Reply().say(b50_text(prof.name, b, src) + ("\n" + note if note else ""))
         memo = self._img_memo.get(ctx.uid)
         if memo is not None and memo[0] is b and memo[1] == rs:
-            return Reply(image=memo[2]).say(note) if note else Reply(image=memo[2])   # 同一份缓存成绩：直接发上次画好的图
+            r = Reply(image=memo[2])                # 同一份缓存成绩：直接发上次画好的图
+            r.card = ("chu", getattr(b, "total", None), SERVER_NAMES.get(s, ""))
+            return r.say(note) if note else r
         try:
             jackets = await self.svc.jackets_for(b.best + b.new)
             out = self.data_dir / "render" / f"b50_{ctx.uid}_{int(time.time())}.jpg"
@@ -506,7 +510,9 @@ class ChuCommands:
             if len(self._img_memo) >= 8:
                 self._img_memo.pop(next(iter(self._img_memo)))
             self._img_memo[ctx.uid] = (b, rs, data)
-            return Reply(image=data).say(note) if note else Reply(image=data)
+            r = Reply(image=data)
+            r.card = ("chu", getattr(b, "total", None), SERVER_NAMES.get(s, ""))
+            return r.say(note) if note else r
         except Exception as e:  # noqa: BLE001
             return Reply().say(f"（出图失败：{type(e).__name__}，先发文字版）\n" + b50_text(prof.name, b, src)
                                + ("\n" + note if note else ""))

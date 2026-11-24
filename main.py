@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import io
 import datetime as dt
 import os
@@ -76,7 +77,7 @@ from .core.privsrv import Hub as PrivHub, NAMES as PRIV_NAMES  # noqa: E402
 from .core.privsrv.servers import rom_label  # noqa: E402
 
 PLUGIN = "astrbot_plugin_otoge_prober"
-VERSION = "2.5.6"
+VERSION = "3.1.2"
 MAI_NAMES = ("mai", "maimai", "舞萌")
 CHU_NAMES = ("chu", "chuni", "中二")
 CORE_NAMES = ("查分", "score", "otoge")
@@ -131,6 +132,10 @@ class OtogeScore(Star):
                          ignore=lambda d, names: [n for n in names if n in ("__pycache__", "outbox", "render")])
             self.migration["renamed"] = "已从 astrbot_plugin_otoge_score 复制全部数据"
         self.prefs = Prefs(root)
+        from .core.stats import Stats
+        self.stats = Stats(os.path.join(root, "stats.json"))
+        from .core.cards import Cards
+        self.cards = Cards(root)
         self.picks = PickBox()          # 「可能是这几首」之后 15 秒内直接回序号
         self.bot_name = str(self._cfg("bot_name", "AstrBot") or "AstrBot")
         self.next_refresh = None
@@ -198,6 +203,11 @@ class OtogeScore(Star):
         if self._cfg("redact_logs", True):
             chu_redact.install()
         self.bindweb = self._init_bindweb()
+        if self.bindweb is not None:
+            self.bindweb.stats = self.stats
+            self.bindweb.cards = self.cards
+            self.bindweb.brand_qq = self._brand_qq()
+            self.bindweb.sessions.on_issue = lambda: self.stats.bump("funnel", "bind_issued")
         self._tasks = [asyncio.create_task(self._mai_refresh_loop()), asyncio.create_task(self._chu_refresh_loop()),
                        asyncio.create_task(self._sdvxin_warmup())]
         if self.bindweb is not None:
@@ -514,6 +524,7 @@ class OtogeScore(Star):
             img = await self._bind_guide_img()
             if img:
                 r.image = img
+                r.brand = False                         # 绑定说明图下面就是链接，不用再接一条
         return r
 
     def _web_bind_confirm(self, ctx: Ctx, code: str) -> Reply:
@@ -540,7 +551,7 @@ class OtogeScore(Star):
         if group and not self._cfg("bind_web_group", True):
             return Reply().say("网页绑定链接是你个人专用的，私聊我发「/网页绑定」拿链接～")
         token = self.bindweb.sessions.issue(ctx.uid, event.unified_msg_origin, ctx.name, group=group)
-        link = f"{url}/#t={token}" + (f"&g={game}" if game in ("mai", "chu", "geki", "sdvx") else "")
+        link = f"{url}/bind#t={token}" + (f"&g={game}" if game in ("mai", "chu", "geki", "sdvx") else "")
         if group:
             return Reply(at=ctx.uid).say(
                 f"你的绑定链接（10 分钟内有效）：\n{link}"
@@ -670,6 +681,10 @@ class OtogeScore(Star):
             logger.warning(f"[otoge] shutdown notice failed: {type(e).__name__}: {e}")
         for t in self._tasks:
             t.cancel()
+        try:
+            self.stats.save()
+        except Exception:  # noqa: BLE001
+            pass
         if self.bindweb is not None:
             await self.bindweb.stop()
         chu_redact.uninstall()
@@ -730,15 +745,16 @@ class OtogeScore(Star):
                     return base64.b64encode(raw).decode(), pick
             except OSError:
                 pass
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "bind", "img", "yume-gone.webp")
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "bind", "img", "yume-p-pout.webp")
         if not os.path.exists(p):
             return None
         with Image.open(p) as im:
             im = im.convert("RGBA")
+            im = im.crop((0, 0, im.width, int(im.height * 0.42)))      # 全身动作图只取到胸口
             im.thumbnail((240, 240))
             buf = io.BytesIO()
             im.save(buf, "PNG")
-        return base64.b64encode(buf.getvalue()).decode(), "yume-gone"
+        return base64.b64encode(buf.getvalue()).decode(), "yume-pout"
 
     async def _announce_shutdown(self) -> None:
         """插件被重载（更新）或 AstrBot 关掉之前：正在玩小游戏、在投别名票的群，先发一句说明 + 表情包，
@@ -792,7 +808,28 @@ class OtogeScore(Star):
                 if src:
                     imgs.append(str(src))
         return Ctx(uid=str(event.get_sender_id()), private=event.is_private_chat(), admin=event.is_admin(),
-                   at_uid=at, name=event.get_sender_name(), nick=self._qq_nick(event), images=imgs)
+                   at_uid=at, name=event.get_sender_name(), nick=self._qq_nick(event), images=imgs,
+                   official=self._is_official(event))
+
+    # QQ 官方机器人在群里也是一个「群成员」，个人号这边看得到它发的话。它们的 QQ 号是固定的号段：
+    # 3889xxxxxx（开放平台建的机器人）、2854196xxx（Q 群管家这类腾讯自己的）。另外可以在配置里手动加号码。
+    _BOT_QQ_RE = re.compile(r"(?:3889\d{6}|2854196\d{3})")
+
+    def _is_other_bot(self, uid: str) -> bool:
+        """发消息的是不是别的机器人（个人号这边用）：是的话这条消息整个不理，也不让它进聊天模型。"""
+        uid = str(uid or "")
+        extra = {str(x).strip() for x in (self._cfg("ignore_qq_list", []) or []) if str(x).strip()}
+        if uid in extra:
+            return True
+        return bool(self._cfg("ignore_other_bots", True)) and bool(self._BOT_QQ_RE.fullmatch(uid))
+
+    @staticmethod
+    def _is_official(event: AstrMessageEvent) -> bool:
+        """这条消息是不是从 QQ 官方机器人来的（AstrBot 的适配器类型是 qq_official / qq_official_webhook）。"""
+        try:
+            return str(event.get_platform_name() or "").startswith("qq_official")
+        except Exception:  # noqa: BLE001
+            return False
 
     @staticmethod
     def _qq_nick(event: AstrMessageEvent) -> str:
@@ -879,10 +916,58 @@ class OtogeScore(Star):
             logger.warning(f"[otoge] pick failed: {type(e).__name__}: {e}")
             return Reply().say("这首没查成，换个说法再查一次吧")
 
+    def _brand_qq(self, event: AstrMessageEvent | None = None) -> str:
+        """页脚上写哪个 QQ 号：配置里填了就用配置的；没填就记住个人号（NapCat）那边自己的号。"""
+        cfg = "".join(ch for ch in str(self._cfg("brand_qq", "") or "") if ch.isdigit())
+        if cfg:
+            return cfg
+        path = os.path.join(self.root, "brand.json")
+        if not hasattr(self, "_self_qq"):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    self._self_qq = str(json.load(f).get("qq") or "")
+            except (OSError, ValueError):
+                self._self_qq = ""
+        if event is not None and not self._is_official(event):
+            try:
+                me = str(event.get_self_id() or "")
+            except Exception:  # noqa: BLE001
+                me = ""
+            if me.isdigit() and 5 <= len(me) <= 11 and me != self._self_qq:
+                self._self_qq = me
+                if getattr(self, "bindweb", None) is not None:
+                    self.bindweb.brand_qq = me
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump({"qq": me}, f)
+                except OSError:
+                    pass
+        return self._self_qq
+
     async def _emit(self, event: AstrMessageEvent, r: Reply):
         self._arm_picks(event, r)
         if r.recall:
             await self._recall(event)
+        if r.image and getattr(r, "card", None):
+            try:
+                uid = str(event.get_sender_id())
+                if self.cards.get(uid) is not None:
+                    g, rating, label = r.card
+                    nick = ""
+                    try:
+                        nick = str(event.get_sender_name() or "")
+                    except Exception:  # noqa: BLE001
+                        pass
+                    await asyncio.to_thread(self.cards.update, uid, g, r.image, rating, label, nick)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[otoge] card update failed: {type(e).__name__}: {e}")
+        if r.image and getattr(r, "brand", True) and self._cfg("image_brand", True):
+            try:
+                from .core import brand as BR
+                r.image = await asyncio.to_thread(BR.stamp, r.image, self.bindweb_url(), self._brand_qq(event),
+                                                  self.bot_name, 0, getattr(r, "theme", "") or "")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[otoge] brand strip failed: {type(e).__name__}: {e}")
         if r.image:
             path = await asyncio.to_thread(self._outbox_file, str(event.get_sender_id()), r.image)
             chain = ([Comp.At(qq=r.at), Comp.Plain(" ")] if r.at else []) + [Comp.Image.fromFileSystem(path)]
@@ -932,7 +1017,7 @@ class OtogeScore(Star):
                 img = await self.imgcache.cached("help", (self.bot_name, vers),
                                                  lambda: asyncio.to_thread(render_help, self.bot_name, None, vers),
                                                  daily=False)
-            return Reply(image=img)
+            return Reply(image=img, theme="help")
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[otoge] help image failed: {e}")
             return Reply().say(help_text(topic, self.bot_name))
@@ -980,7 +1065,19 @@ class OtogeScore(Star):
         return Reply().say(f"好，{where}上{'会显示' if on else '不再显示'}{name}。" + (f"改回来：/{game} {words[0]} {'关' if on else '开'}"))
 
     async def _dispatch(self, event: AstrMessageEvent, game: str, argline: str) -> Reply:
+        r = await self._dispatch_inner(event, game, argline)
+        if r is not None and r.image and not r.theme:        # 页脚跟着这个游戏的图长（帮助图自己标了 help）
+            r.theme = game
+        return r
+
+    async def _dispatch_inner(self, event: AstrMessageEvent, game: str, argline: str) -> Reply:
         ctx = self._ctx(event)
+        try:
+            gid = "" if ctx.private else str(getattr(event, "get_group_id", lambda: "")() or "")
+            self.stats.hit(ctx.uid, game, argline.strip().split(None, 1)[0] if argline.strip() else "",
+                           private=ctx.private, official=ctx.official, group=gid)
+        except Exception:  # noqa: BLE001
+            pass
         topic = self._help_topic(game, argline)
         if topic is not False:                          # 「/mai 帮助」「/geki」「/sdvx 帮助」「/查分 帮助 舞萌」
             return await self._help_reply(topic)
@@ -1010,6 +1107,8 @@ class OtogeScore(Star):
             return await self._web_bind_reply(event, ctx, "sdvx")
         if game in ("sdvx", "pjsk", "chart"):           # sdvx.in chart views (no scores for these)
             r = await self.charts.handle(ctx, argline, game)
+            if r is not None:
+                r.brand = False                         # 谱面图是 sdvx.in 的，不接页脚
             if first.lower() in ("加别名", "添加别名"):
                 await asyncio.to_thread(self.alias_library)
             return r
@@ -1026,7 +1125,10 @@ class OtogeScore(Star):
             return await self._web_bind_reply(event, ctx, game)
         if first.lower() in CHART_SUBS:
             if game == "chu":
-                return await self.charts.handle(ctx, rest, "chu")
+                r = await self.charts.handle(ctx, rest, "chu")
+                if r is not None:
+                    r.brand = False
+                return r
             return Reply().say("sdvx.in 没有舞萌的谱面确认。可以查：/chu 谱面 <歌>、/geki 谱面 <歌>、/sdvx 谱面 <歌>、/pjsk 谱面 <歌>")
         self.prefs.set_last_game(ctx.uid, game)
         handler = self.cmd if game == "mai" else self.chu
@@ -1056,6 +1158,7 @@ class OtogeScore(Star):
             return Reply().say(f"传分网站{what}：\n{direct}\n你已经在 {n_sess} 个设备上登录过，在那台设备上直接打开就行。"
                                "\n这台设备没登录过的话点开是只读模式：发「/传分 登录」要登录链接（私聊发更省事，不用确认码）。")
         tok = self.scorebook.sessions.issue_login(ctx.uid, ctx.nick or ctx.name, game, confirm=not ctx.private)
+        self.stats.bump("funnel", "score_issued")
         nav = self.scorebook.deep_link(game, rest)
         link = f"{url}/scores#" + urlencode({"t": tok, **nav})
         if nav.get("k") or nav.get("q"):
@@ -1105,6 +1208,8 @@ class OtogeScore(Star):
             if force:
                 rest = f1.strip()
             return self._scorebook_link(event, ctx, game, rest, force)
+        if game in ("sdvx", "geki") and first in THEORY_WORDS:
+            return await self._scorebook_theory(ctx, game, rest.split())
         r = await sb.handle(ctx, game, first, rest)
         if r is not None:
             return r
@@ -1120,7 +1225,9 @@ class OtogeScore(Star):
                                               self.bot_name, getattr(self.chu_svc.settings, "font_path", None),
                                               getattr(self.chu_svc.settings, "timezone", None) or "Australia/Sydney")
                     if img:
-                        return Reply(image=img)
+                        r = Reply(image=img)
+                        r.card = ("sdvx", sb.total(ctx.uid, "sdvx") / 1000, "手动传分")
+                        return r
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"[otoge] sdvx vf50 image failed: {type(e).__name__}: {e}")
             return Reply().say(sb.sdvx_text(ctx.uid, full))
@@ -1147,6 +1254,53 @@ class OtogeScore(Star):
             if manual or (not bound and sb.store.has_any(ctx.uid, "geki")):
                 return await self._geki_manual_best(ctx, words + ([first] if first in ("文字", "text") else []))
         return None
+
+    async def _scorebook_theory(self, ctx: Ctx, game: str, words: list[str]) -> Reply:
+        """/sdvx 理论、/geki 理论：曲库里每张谱面都满分时的成绩图（不用绑定，也不动任何人传的成绩）。"""
+        from .scorebook import calc as SBK
+        sb = self.scorebook
+        if sb.cat(game) is None or not sb.cat(game).charts:
+            return Reply().say("曲库还没准备好，过一会儿再试")
+        text = any(w in ("文字", "text", "txt", "文本") for w in words)
+        font = getattr(self.chu_svc.settings, "font_path", None)
+        tz = getattr(self.chu_svc.settings, "timezone", None) or "Australia/Sydney"
+        if game == "sdvx":
+            if not text:
+                try:
+                    img = await sb.sdvx_image(ctx.uid, "", self.bot_name, font, tz, theory=True)
+                    if img:
+                        return Reply(image=img)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[otoge] sdvx theory image failed: {type(e).__name__}: {e}")
+            return Reply().say(sb.sdvx_theory_text())
+        best = SBK.geki_best(sb.cat("geki"), sb.theory_scores("geki"), "理论 Rating")
+        head = f"音击理论 Rating：{(best.calc or 0) / 1000:.3f}（Re:Fresh 规则，每张谱面都 1,010,000 AB+ · FB · ★5）"
+        if not text:
+            try:
+                import tempfile
+                from pathlib import Path
+                from .ongeki.b50img import render as geki_render
+                titles = [c.title for c in (*best.new, *best.best, *best.plat)]
+                jackets = {}
+                try:
+                    jackets = await self.charts.src.geki_jackets(titles)
+                except Exception:  # noqa: BLE001
+                    pass
+                out = Path(tempfile.gettempdir()) / f"otoge_gekit_{time.time_ns()}.jpg"
+                await asyncio.to_thread(geki_render, best, out, jackets=jackets, font_path=font,
+                                        footer_left=f"Generated by {self.bot_name}",
+                                        region_label="理论值 · Re:Fresh 规则", tz=tz)
+                try:
+                    return Reply(image=out.read_bytes()).say(head)
+                finally:
+                    try:
+                        out.unlink()
+                    except OSError:
+                        pass
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[otoge] geki theory image failed: {type(e).__name__}: {e}")
+        lines = [head, "", "新曲前 5：" + "、".join(c.title for c in best.new[:5]), "旧曲前 5：" + "、".join(c.title for c in best.best[:5])]
+        return Reply().say("\n".join(lines))
 
     async def _geki_manual_best(self, ctx: Ctx, words: list[str]) -> Reply:
         from .scorebook import calc as SBK
@@ -1177,7 +1331,9 @@ class OtogeScore(Star):
                                                       else "手动传分") + " · Re:Fresh 规则",
                                         tz=getattr(self.chu_svc.settings, "timezone", None) or "Australia/Sydney")
                 try:
-                    return Reply(image=out.read_bytes())
+                    r = Reply(image=out.read_bytes())
+                    r.card = ("geki", (best.calc / 1000) if best.calc is not None else None, "手动传分")
+                    return r
                 finally:
                     try:
                         out.unlink()
@@ -1924,6 +2080,43 @@ class OtogeScore(Star):
     def _is_owner(self, event: AstrMessageEvent) -> bool:
         return event.is_admin() or str(event.get_sender_id()) in self._owner_ids()
 
+    def _card_reply(self, ctx: Ctx, args: list[str]) -> Reply:
+        """/名片：公开的成绩名片（固定链接，谁都能看）。自己开了才有，关了整张删掉。"""
+        url = self.bindweb_url() if self.bindweb_ready() else ""
+        if not url:
+            return Reply().say("名片要用网页，机器人主人还没把网站配好。")
+        if ctx.official:
+            return Reply().say("名片现在只能在个人号那边开（官方机器人这边认不到你的 QQ 号）。")
+        word = (args[0].lower() if args else "")
+        cur = self.cards.get(ctx.uid)
+        ON, OFF = ("开", "on", "开启", "打开", "开通"), ("关", "off", "关闭", "关掉", "删除", "删")
+        if word in OFF:
+            if self.cards.disable(ctx.uid):
+                return Reply().say("名片关掉了，链接已经失效，存在上面的成绩图也删了。")
+            return Reply().say("你没开名片。")
+        if word in ("换链接", "换", "新链接", "relink"):
+            u = self.cards.relink(ctx.uid)
+            if u is None:
+                return Reply().say("你还没开名片。发「/名片 开」")
+            return Reply().say(f"换好了，旧链接已经失效：\n{url}/u/{u['slug']}")
+        if word in ON or (cur is None and word == ""):
+            if cur is None and word == "":
+                return Reply().say("名片是一个公开的网页，放你最近查的成绩图和 rating 走势，链接发给谁谁就能看（不用登录）。\n"
+                                   "上面只有成绩图本来就有的东西，不会出现你的 QQ 号。\n"
+                                   "要开就发：/名片 开　　以后不想要了发：/名片 关")
+            u = self.cards.enable(ctx.uid, ctx.nick or ctx.name)
+            if cur is None:
+                self.stats.bump("funnel", "card_on")
+            return Reply().say(f"名片开好了：\n{url}/u/{u['slug']}\n"
+                               "现在还是空的——发一次 /mai b50、/chu b50、/geki b50 或 /sdvx b50，对应的图就会放上去，之后每次查都会跟着更新。\n"
+                               "链接谁都能打开。不想要了发「/名片 关」，想换个链接发「/名片 换链接」")
+        u = cur
+        have = [k for k in ("mai", "chu", "geki", "sdvx") if (u["games"].get(k) or {}).get("ts")]
+        names = {"mai": "舞萌", "chu": "中二", "geki": "音击", "sdvx": "SDVX"}
+        return Reply().say(f"你的名片：\n{url}/u/{u['slug']}\n"
+                           + ("上面有：" + "、".join(names[k] for k in have) if have else "还是空的，查一次 b50 就有了")
+                           + "\n关掉：/名片 关　　换链接：/名片 换链接")
+
     async def _core(self, event: AstrMessageEvent, ctx: Ctx, argline: str) -> Reply:
         args = argline.split()
         sub = args[0].lower() if args else ""
@@ -1980,6 +2173,31 @@ class OtogeScore(Star):
             self.prefs.set_llm(gid, on)
             return Reply().say(f"{where}自然语言查分已{'开启' if on else '关闭'}"
                                + ("：@我 说「帮我看下舞萌 b50」就行（会用到大模型）" if on else "，只响应指令"))
+        if sub in ("邀请", "热闹邀请", "猜歌邀请", "invite"):
+            # 「热闹时邀请」的开关：以前只能在插件管理页按群号开；QQ 官方机器人那边的群没有群号（是一串标识），所以加这条指令
+            ON, OFF = ("开", "on", "开启", "1", "true"), ("关", "off", "关闭", "0", "false")
+            rest = [a for a in args[1:] if a not in ("状态", "status")]
+            want = next((a for a in rest if a in ON + OFF), "")
+            gid = next((a for a in rest if a not in ON + OFF), "") or str(event.get_group_id() or "")
+            if not gid:
+                return Reply().say("在群里发「/查分 邀请 开」打开这个群的「热闹时邀请」；私聊里要带上群的标识：/查分 邀请 开 <群标识>")
+            if not want:
+                on = self.prefs.invite_enabled(gid)
+                return Reply().say(f"这个群（{gid}）的「热闹时邀请」：{'开' if on else '关'}\n"
+                                   f"机器人主人发「/查分 邀请 开」打开；也可以在别处替它开：/查分 邀请 开 {gid}")
+            if not self._is_owner(event):
+                return Reply().say(f"只有机器人主人能改这个开关。主人可以私聊发：/查分 邀请 {want} {gid}")
+            on = want in ON
+            self.prefs.set_invite(gid, on)
+            return Reply().say(f"这个群（{gid}）的「热闹时邀请」已{'打开' if on else '关掉'}"
+                               + ("：群里聊得热闹又没人在玩的时候，我会问一句要不要来一局" if on else ""))
+        if sub in ("名片", "card", "主页", "我的名片"):
+            return self._card_reply(ctx, args[1:])
+        if sub in ("统计", "stats", "用量", "使用量", "使用统计"):
+            if not self._is_owner(event):
+                return Reply().say("使用统计只给机器人主人看。")
+            n = next((int(x) for x in args[1:] if x.isdigit()), 7)
+            return Reply().say(self.stats.report(n))
         if sub in THEORY_WORDS:
             return await self._theory_overview()
         if sub in ("进度", "版本", "版本进度", "曲库", "数据", "progress"):
@@ -2065,6 +2283,11 @@ class OtogeScore(Star):
         text, raw = _PLAIN_AT.sub("", text, count=1), _PLAIN_AT.sub("", raw, count=1)
         slash = raw.lstrip()[:1] in ("/", "／")
         ctx = self._ctx(event)
+        if not ctx.official and self._is_other_bot(ctx.uid):
+            # 别的机器人（比如同群的 QQ 官方机器人）说的话：不当指令、不进小游戏，也不交给聊天模型和陪伴 / 记忆插件
+            event.should_call_llm(True)
+            event.stop_event()
+            return
         if ctx.private and self._is_owner(event):
             self._remember_owner_chat(event)
         lx_secret = looks_like_lxns_secret(text)
@@ -2097,6 +2320,13 @@ class OtogeScore(Star):
             try:
                 r = await self.games.handle(event.unified_msg_origin, ctx, text,
                                             command=ctx.private or slash or bool(event.is_at_or_wake_command))
+                if r is not None:
+                    r.brand = False                     # 猜歌的图不接页脚
+                    try:
+                        self.stats.hit(ctx.uid, "games", "", private=ctx.private, official=ctx.official,
+                                       group="" if ctx.private else str(event.get_group_id() or ""))
+                    except Exception:  # noqa: BLE001
+                        pass
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[otoge] game message failed: {type(e).__name__}: {e}")
                 r = None

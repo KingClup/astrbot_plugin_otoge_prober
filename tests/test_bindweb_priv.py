@@ -97,7 +97,7 @@ async def test_http_priv_password_not_echoed_or_logged(plugin, caplog):
     c = TestClient(TestServer(web.app()))
     await c.start_server()
     try:
-        page = await (await c.get("/")).text()
+        page = await (await c.get("/bind")).text()
         assert 'data-for="rinlogin"' in page and "{{BOT}}" not in page
         js = await (await c.get("/app.js")).text()
         assert '"priv", "私服"' in js and "rin_token" in js
@@ -136,7 +136,7 @@ async def test_binder_geki_aqua(plugin, tmp_path):
     c = TestClient(TestServer(web.app()))
     await c.start_server()
     try:
-        page = await (await c.get("/")).text()
+        page = await (await c.get("/bind")).text()
         assert 'data-game="geki"' in page
         js = await (await c.get("/app.js")).text()
         assert '"geki/priv"' in js and 'g === "geki"' in js

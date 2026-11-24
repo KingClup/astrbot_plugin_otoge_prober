@@ -729,10 +729,10 @@ def test_sdvx_radar_and_navigator(tmp_path):
     plain = render(rows, Path(tmp_path) / "a.jpg", player="Kc")
     full = render(rows, Path(tmp_path) / "b.jpg", player="Kc", radar=prof["radar"], nav=p, nav_name=prof["nav"])
     with Image.open(plain) as a, Image.open(full) as b:
-        assert b.height == a.height + 330                       # 多一条名片
+        assert b.height == a.height + 420                       # 多一条名片
     only_nav = render(rows, Path(tmp_path) / "c.jpg", player="Kc", nav=p)
     with Image.open(only_nav) as c:
-        assert c.height == a.height + 330
+        assert c.height == a.height + 420
 
     assert "删掉" in run(sb.handle(ctx, "sdvx", "领航员", "清除")).texts[0]
     assert not os.path.exists(p) and "nav" not in sb.store.profile("10003")
@@ -780,7 +780,51 @@ def test_web_sdvx_profile(tmp_path):
             assert r["ok"] and r["nav"] == "ツマブキ" and r["img"] > 0
             r = await (await c.post("/api/sb/radar", json={"radar": None}, headers=H)).json()
             assert r["ok"] and r["radar"] is None
+            # 头像单独框（v3.1.2）：存成 512 方图，B50 上优先用；只换领航员图（不带 keep_face）就回到自动取
+            assert r["face"] == 0
+            r = await (await c.post("/api/sb/nav", json={"face": data}, headers=H)).json()
+            assert r["ok"] and r["face"] > 0 and r["img"] > 0
+            fp = sb.store.face_path("10001")
+            with Image.open(fp) as im:
+                assert im.size == (512, 512)
+            f = await c.get("/api/sb/nav_face.png")
+            assert f.status == 200 and (await f.read())[:4] == b"\x89PNG"
+            from scorebook.sdvx_img import _nav_face
+            assert _nav_face(sb.store.nav_path("10001"), 40).getpixel((20, 20)) == Image.open(fp).convert("RGBA").resize((40, 40), Image.Resampling.LANCZOS).getpixel((20, 20))
+            r = await (await c.post("/api/sb/nav", json={"img": data, "keep_face": True}, headers=H)).json()
+            assert r["ok"] and r["face"] > 0 and os.path.exists(fp)
+            r = await (await c.post("/api/sb/nav", json={"img": data}, headers=H)).json()
+            assert r["ok"] and r["face"] == 0 and not os.path.exists(fp)
+            r = await (await c.post("/api/sb/nav", json={"img": data, "face": data}, headers=H)).json()
+            assert r["ok"] and r["face"] > 0
             r = await (await c.post("/api/sb/nav", json={"clear": True}, headers=H)).json()
-            assert r["ok"] and r["img"] == 0 and r["nav"] == ""
-            assert not os.path.exists(sb.store.nav_path("10001"))
+            assert r["ok"] and r["img"] == 0 and r["nav"] == "" and r["face"] == 0
+            assert not os.path.exists(sb.store.nav_path("10001")) and not os.path.exists(fp)
+            r = await (await c.post("/api/sb/nav", json={"face": data}, headers=H)).json()
+            assert not r["ok"] and "先传领航员图" in r["message"]
     run(flow())
+
+
+def test_sdvx_radar_overflows_the_ring():
+    """六维图：圈 = 100，超过 100 的角画到圈外面（爆表）；不超过的不出圈。"""
+    from PIL import Image
+
+    from scorebook import sdvx_img as M
+
+    def orange_above_ring(vals):
+        img = Image.new("RGBA", (800, 360), (6, 30, 24, 255))
+        M._radar_panel(img, 20, 13, 760, 334, vals)
+        cx, cy, r = 20 + 380, 13 + 167, 110
+        px = img.convert("RGB").load()
+        hits = 0
+        for y in range(cy - r - 40, cy - r - 4):             # 圈顶上面那一条（NOTES 那个角的方向），避开字所在的正中
+            for x in list(range(cx - 60, cx - 44)) + list(range(cx + 44, cx + 60)):
+                c = px[x, y]
+                hits += c[0] > 200 and c[2] < 90
+        return hits
+
+    assert orange_above_ring([150, 150, 50, 50, 50, 150]) > 50
+    assert orange_above_ring([100, 100, 50, 50, 50, 100]) == 0
+    assert M._seg_width("111.11", 20, 0.76, 0.36) == M._seg_width("888.88", 20, 0.76, 0.36)      # 数字等宽，1 也占一整格
+    assert M._seg_width("10", 20, 0.76, 0.36) < M._seg_width("1.0", 20, 0.76, 0.36) < M._seg_width("100", 20, 0.76, 0.36)
+    assert set("".join(M.RADAR_LABELS) + "0123456789.-") <= set(M._SEG) | {" "}     # 要用到的字都描了

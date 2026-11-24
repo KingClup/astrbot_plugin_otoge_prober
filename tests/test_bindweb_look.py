@@ -9,7 +9,7 @@ from core.bindweb import Binder, BindWeb, WEB_DIR  # noqa: E402
 from tests.test_bindweb import FakePlugin, _client, run  # noqa: E402
 
 
-HAS_GIRL = os.path.isfile(os.path.join(WEB_DIR, "img", "yume-hello.webp"))     # 看板娘图只在自用版里
+HAS_GIRL = os.path.isfile(os.path.join(WEB_DIR, "img", "yume-full.webp"))     # 看板娘图只在自用版里
 
 
 def test_images_route():
@@ -21,7 +21,7 @@ def test_images_route():
     async def go():
         c = await _client(web)
         try:
-            for name in ("yume-hello", "yume-ok", "yume-gone", "yume-pass", "yume-wave", "yume-shh", "yume-peace", "yume-think"):
+            for name in ("yume-full", "yume-full-blink", "yume-p-wave", "yume-p-shh", "yume-p-heart", "yume-a-jump", "yume-a-wsit"):   # v3.0.0：全身立绘 + 动作差分 + 动作帧
                 r = await c.get(f"/img/{name}.webp")
                 body = await r.read()
                 assert r.status == 200 and r.content_type == "image/webp" and body[:4] == b"RIFF"
@@ -31,7 +31,7 @@ def test_images_route():
                         "/img/YUME-OK.webp", "/img/"):
                 assert (await c.get(bad)).status == 404, bad
             # 页面和接口照旧不缓存
-            assert (await c.get("/")).headers["Cache-Control"] == "no-store"
+            assert (await c.get("/bind")).headers["Cache-Control"] == "no-store"
         finally:
             await c.close()
     run(go())
@@ -48,13 +48,13 @@ def test_page_has_intro_and_keeps_csp_rules():
     # CSP 是 style-src 'self' / script-src 'self'：页面里不能有行内样式、行内脚本、外链资源
     assert " style=" not in html and "<style" not in html and "onclick" not in html
     assert not re.search(r"<script(?![^>]*\bsrc=)", html)
-    assert "innerHTML" not in js and ".style." not in js
+    assert "innerHTML" not in js and not re.search(r"\.style\.(?!setProperty\()", js)      # 只许 style.setProperty（CSP 不拦 CSSOM）
     assert not re.search(r"https?://", css) and "@import" not in css
     # 图片都在 /img/ 下，而且文件真的在包里
     for src in re.findall(r'src="(/img/[^"]+)"', html):
-        assert src.startswith("/img/yume-") and src.endswith(".webp"), src
+        assert re.fullmatch(r"/img/yume-[a-z]+\.webp\?v=\d+", src), src                 # 带版本号：换图后不吃旧缓存
         if HAS_GIRL:
-            assert os.path.isfile(os.path.join(WEB_DIR, src.lstrip("/"))), src
+            assert os.path.isfile(os.path.join(WEB_DIR, src.split("?")[0].lstrip("/"))), src
     # 开场不耽误领链接：/api/session 不在任何点击 / 定时回调里才发
     assert js.index('api("/api/session")') > js.index("function introReady")
     assert "prefers-reduced-motion" in css and "prefers-reduced-motion" in js
@@ -69,7 +69,7 @@ def test_scores_theme_bits():
         js = f.read()
     with open(os.path.join(root, "app.css"), encoding="utf-8") as f:
         css = f.read()
-    assert 'src="/img/yume-pass.webp"' in html and " style=" not in html
+    assert 'id="heroGirl"' in html and " style=" not in html and "/img/yume-" not in html      # v3.0.0：看板娘由 /yume.js 放进去
     assert '"lp L-" + (k || "NONE")' in js and '"lp L-BELL"' in js and ".innerHTML" not in js
     for cls in ("L-PUC", "L-UC", "L-MXV", "L-EXC", "L-COMP", "L-PLAY", "L-AB", "L-FC", "L-NONE", "L-BELL"):
         assert "." + cls + " { --lc:" in css, cls
@@ -87,8 +87,8 @@ def test_scores_gate_and_motion():
     with open(os.path.join(root, "app.css"), encoding="utf-8") as f:
         css = f.read()
     assert 'id="gate"' in html and 'data-game="sdvx" disabled' in html and 'data-game="geki" disabled' in html
-    assert " style=" not in html and 'src="/img/yume-wave.webp"' in html       # 入口用挥手那张，和绑定站开场不是同一张
-    for used in ("yume-shh.webp", "yume-peace.webp", "yume-think.webp"):
+    assert " style=" not in html and 'id="gateGirl"' in html
+    for used in ('Y.figure($("gateGirl"), { view: .56, pose: "wave"', '"shh", .42', '"peace"', 'Y.src("yume-a-wsit")'):   # v3.0.0：入口挥手、确认码「嘘」、传好了比耶、没找到鸭子坐
         assert used in js, used
     assert "function gateClose" in js and 'sessionStorage.getItem("sb_gate")' in js
     assert 'hp.get("k") || hp.get("q")' in js                       # 直达链接不放入口页
@@ -224,7 +224,7 @@ def test_scores_hero_big_and_compact():
     assert "min-height: 150px" in css and "body.compact .herobox" in css and "body.compact .hero-girl" in css
     assert 'class: "hn none"' in js and '"还没传"' in js
     assert 'classList.toggle("compact"' in js and "ResizeObserver" in js
-    assert "app.css?v=2555" in html and "app.js?v=2555" in html
+    assert "app.css?v=312" in html and "app.js?v=312" in html and "/yume.js?v=300" in html
 
 
 def test_help_image_bind_style_and_poses(tmp_path, monkeypatch):
@@ -241,7 +241,7 @@ def test_help_image_bind_style_and_poses(tmp_path, monkeypatch):
     import os
     js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "scores", "app.js"),
               encoding="utf-8").read()
-    for pose in ("pass", "think", "ok", "wave"):
+    for pose in ("card", "think", "ok", "wave"):
         assert f'"{pose}"' in js
 
 
@@ -278,7 +278,12 @@ def test_pages_cope_without_mascot_images():
     for site in ("bind", "scores"):
         js = open(os.path.join(root, site, "app.js"), encoding="utf-8").read()
         css = open(os.path.join(root, site, "app.css"), encoding="utf-8").read()
-        assert "girl-missing" in js and "naturalWidth" in js and ".girl-missing { display: none !important; }" in css
+        assert "window.Mascot || null" in js and "/img/yume-" not in js      # v3.0.0：看板娘都从 /yume.js 来，它自己探图在不在
     assert "no-hero-girl" in open(os.path.join(root, "scores", "app.css"), encoding="utf-8").read()
+    yjs = open(os.path.join(root, "bind", "yume.js"), encoding="utf-8").read()
+    ycss = open(os.path.join(root, "bind", "yume.css"), encoding="utf-8").read()
+    assert 'root.classList.add("no-yume")' in yjs and "naturalWidth" in yjs
+    assert ".no-yume .yf, .no-yume .yb, .no-yume .y-only { display: none !important; }" in ycss
+    assert not re.search(r"https?://(?!www\.w3\.org/2000/svg)", yjs) and not re.search(r"https?://", ycss)
     src = open(os.path.join(os.path.dirname(root), "core", "bindweb.py"), encoding="utf-8").read()
     assert "公开版包里没有这张图" in src

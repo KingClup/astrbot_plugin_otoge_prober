@@ -2,18 +2,10 @@
 /* 传分网站（SDVX / 音击）。全部用 DOM 接口拼页面（不用 innerHTML），CSP 只允许本站脚本。 */
 (function () {
   const $ = (id) => document.getElementById(id);
-  // 看板娘图片取不到（公开版包里没有这些图）：这张图不占地方，顶栏也不给它留位置
-  (function () {
-    function isGirl(t) { return t && t.tagName === "IMG" && /\/img\/yume-/.test(t.getAttribute("src") || ""); }
-    function mark(t, missing) {
-      t.classList.toggle("girl-missing", missing);
-      if (t.id === "heroGirl") document.body.classList.toggle("no-hero-girl", missing);
-    }
-    document.addEventListener("error", function (e) { if (isGirl(e.target)) mark(e.target, true); }, true);
-    document.addEventListener("load", function (e) { if (isGirl(e.target)) mark(e.target, false); }, true);
-    var imgs = document.querySelectorAll('img[src^="/img/yume-"]');
-    for (var i = 0; i < imgs.length; i++) if (imgs[i].complete && imgs[i].naturalWidth === 0) mark(imgs[i], true);
-  })();
+  // 看板娘、背景剪影、转场、判定字都在 /yume.js（三个网站共用）。它没加载上、或者公开版没有看板娘图：页面照常用
+  const Y = window.Mascot || null;
+  document.body.classList.add("no-hero-girl");
+  if (Y) Y.ready((ok) => document.body.classList.toggle("no-hero-girl", !ok));
   const S = {
     game: "sdvx", view: "find", me: null, cats: {}, idx: {}, scores: {}, summary: {},
     hits: null, query: "", shown: 50, sheet: null, mineLevel: {}, saves: 0, batch: null, showConst: false,
@@ -98,16 +90,29 @@
   const fs = (k) => { const v = k * 5; return Math.floor(v / 100) + "." + String(v % 100).padStart(2, "0"); };
   const fk = (k) => (k < 0 ? "-" : "") + Math.floor(Math.abs(k) / 1000) + "." + String(Math.abs(k) % 1000).padStart(3, "0");
   let toastTimer = 0;
-  function toast(msg, yay) {                              // yay：传好了——看板娘比个耶
+  // pose：带着看板娘弹出来。true = 比个耶（传好了），也可以直接给动作名："cheer" 新纪录、"heart" 批量传完、"surprise" 出错、"sleepy" 加载失败
+  function toast(msg, pose) {
     const t = $("toast");
     t.hidden = true; void t.offsetWidth;                 // 连着弹两次也重新演一遍
     t.replaceChildren();
-    t.classList.toggle("yay", !!yay);
-    if (yay) t.append(h("img", { class: "toast-girl", src: "/img/yume-peace.webp", alt: "", width: 520, height: 385 }));
-    t.append(h("span", { text: msg }));
+    const girl = Y && pose ? h("span", { class: "toast-girl" }) : null;
+    t.classList.toggle("yay", !!girl);
+    if (girl) { Y.bust(girl, pose === true ? "peace" : pose, .42); t.append(girl); }
+    t.append(msg instanceof Node ? msg : h("span", { text: msg }));
     t.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (t.hidden = true), yay ? 3400 : 2600);
+    toastTimer = setTimeout(() => (t.hidden = true), pose ? 3400 : 2600);
+  }
+  // 分数从旧的滚到新的（像机台结算那样）
+  function rollNum(el, from, to, ms) {
+    if (!Y || Y.calm || from === to) { el.textContent = comma(to); return; }
+    const t0 = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = comma(Math.round(from + (to - from) * e));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
   async function api(path, body) {
     const opt = { credentials: "same-origin", headers: {} };
@@ -186,7 +191,7 @@
     if (S.cats[game]) return;
     $("count").textContent = "正在加载曲库…";
     const d = await api("/api/sb/catalog?game=" + game);
-    if (!d.songs) { $("count").textContent = "曲库加载失败，刷新页面再试"; return; }
+    if (!d.songs) { $("count").textContent = "曲库加载失败，刷新页面再试"; toast("曲库没加载上，刷新页面再试", "sleepy"); return; }
     const songs = d.songs.map((s) => ({ ...s, f: fold(s.t), charts: s.c.map((c) => ({ ...c, key: s.k + ":" + c.d, song: s })) }));
     const byKey = {}, chartByKey = {};
     songs.forEach((s) => { byKey[s.k] = s; s.charts.forEach((c) => (chartByKey[c.key] = c)); });
@@ -204,17 +209,14 @@
   // ---------- 顶栏 ----------
   // 顶栏的看板娘：按游戏、有没有成绩换姿势（别到处都是同一张）
   const HERO_GIRL = {
-    sdvx: { some: ["pass", 520, 385], none: ["think", 520, 397] },
-    geki: { some: ["ok", 520, 388], none: ["wave", 640, 788] },
+    sdvx: { some: "card", none: "think" },
+    geki: { some: "ok", none: "wave" },
   };
+  let heroBust = null;
   function heroGirl(game, has) {
-    const img = $("heroGirl");
-    const [name, w, hh] = (HERO_GIRL[game] || HERO_GIRL.sdvx)[has ? "some" : "none"];
-    if (img.dataset.pose === name) return;
-    img.dataset.pose = name;
-    img.width = w; img.height = hh;
-    img.classList.toggle("tall", hh > w);          // 全身那两张从头往下露，别的贴底
-    img.src = "/img/yume-" + name + ".webp";
+    if (!Y) return;
+    const name = (HERO_GIRL[game] || HERO_GIRL.sdvx)[has ? "some" : "none"];
+    if (heroBust) heroBust.pose(name); else heroBust = Y.bust($("heroGirl"), name, .5);
   }
   function renderSum() {
     const el = $("sum");
@@ -255,7 +257,11 @@
     document.body.classList.toggle("compact", compact);
   }
   window.addEventListener("scroll", onScroll, { passive: true });
-  function showGuest() { $("guest").hidden = !!(S.me && S.me.login); }
+  let guestBust = null;
+  function showGuest() {
+    $("guest").hidden = !!(S.me && S.me.login);
+    if (Y && !$("guest").hidden && !guestBust) guestBust = Y.bust($("guestGirl"), "curtsy", .46);
+  }
 
   // ---------- 筛选 ----------
   function opt(v, t) { return h("option", { value: v, text: t }); }
@@ -374,6 +380,7 @@
   }
   function renderList() {
     const g = S.game, list = $("list"), f = F();
+    if (!S.idx[g]) return;                                // 刚换游戏、曲库还在路上（清空搜索框后马上切游戏会走到这）：等 setGame 加载完再画
     list.className = "songs" + (g === "geki" ? " g" : "");
     const rows = filtered();
     const on = chartFilterOn(f);
@@ -396,7 +403,7 @@
     }
     if (!rows.length) {                                   // 一首都没有：看板娘想一想，给个下一步
       list.append(h("li", { class: "empty" },
-        h("img", { class: "empty-girl", src: "/img/yume-think.webp", alt: "", width: 520, height: 397 }),
+        Y ? h("div", { class: "empty-girl y-only" }, h("img", { src: Y.src("yume-a-wsit"), alt: "" })) : null,
         h("div", { class: "empty-t", text: S.hits ? "没找到这首" : "这个条件下一首都没有" }),
         h("div", { class: "empty-s", text: S.hits ? "换个写法试试：外号、读音、歌名里的几个字都行。" : "把筛选放宽一点，或者点「清除筛选」。" })));
     }
@@ -435,9 +442,60 @@
   }
 
   // ---------- 传分面板 ----------
-  function closeSheet() {
-    document.body.style.overflow = "";
+  // 手机上（尤其 iPhone / QQ 里的网页窗口）：面板开着时后面的页面锁住不跟着滑，面板自己能上下滑；
+  // 键盘弹出来时面板贴在键盘上面；右上角「关闭」、底下「取消」、往下拖顶上那条、手机的「返回」都能关。
+  const sheetLock = { on: false, y: 0, pushed: false, back: null };
+  function lockPage() {
+    if (sheetLock.on) return;
+    sheetLock.on = true; sheetLock.y = window.scrollY || 0;
+    document.body.style.top = -sheetLock.y + "px";
+    document.documentElement.classList.add("sheet-open");
+  }
+  function unlockPage() {
+    if (!sheetLock.on) return;
+    sheetLock.on = false;
+    document.documentElement.classList.remove("sheet-open");
+    document.body.style.top = "";
+    window.scrollTo(0, sheetLock.y);
+  }
+  function fitSheet() {                                     // 键盘占掉的高度：面板往上挪这么多，最高也只到看得见的那块
+    const el = $("sheet"), vv = window.visualViewport;
+    if (!vv || el.hidden) { el.style.removeProperty("--kb"); el.style.removeProperty("--vvh"); return; }
+    el.style.setProperty("--kb", Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) + "px");
+    el.style.setProperty("--vvh", Math.round(vv.height) + "px");
+  }
+  function closeSheet(fromBack) {
+    if (!S.sheet && $("sheet").hidden) return;
+    const blur = document.activeElement;
+    if (blur && blur.blur && $("sheet").contains(blur)) blur.blur();   // 先收键盘，不然 iPhone 上页面会停在奇怪的位置
     $("sheet").hidden = true; $("sheetBg").hidden = true; S.sheet = null;
+    $("sheetIn").style.transform = "";
+    fitSheet();
+    unlockPage();
+    if (sheetLock.pushed) {
+      sheetLock.pushed = false;
+      if (fromBack !== true) { sheetLock.back = sheetLock.y; history.back(); }   // 退回去以后浏览器会把页面滚回顶上：popstate 里再滚回来
+    }
+  }
+  function sheetDrag(box) {                                 // 从顶上那条（或者面板已经滑到顶时）往下拖：跟手，拖够了就关
+    let y0 = null, dy = 0;
+    box.addEventListener("touchstart", (e) => {
+      const t = e.target;
+      if (e.touches.length !== 1 || t.closest("input, textarea, select, button, .difftabs")) { y0 = null; return; }
+      if (!t.closest(".sheet-top") && box.scrollTop > 0) { y0 = null; return; }
+      y0 = e.touches[0].clientY; dy = 0;
+    }, { passive: true });
+    box.addEventListener("touchmove", (e) => {
+      if (y0 === null) return;
+      dy = e.touches[0].clientY - y0;
+      if (dy > 0) { box.style.transform = "translateY(" + dy + "px)"; if (e.cancelable) e.preventDefault(); }
+      else { box.style.transform = ""; }
+    }, { passive: false });
+    box.addEventListener("touchend", () => {
+      if (y0 === null) return;
+      y0 = null;
+      if (dy > 90) closeSheet(); else box.style.transform = "";
+    });
   }
   function fmtTime(t) { if (!t) return ""; const d = new Date(t * 1000); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
 
@@ -453,7 +511,8 @@
     box.replaceChildren();
     box.className = "sheet-in" + (g === "geki" ? " g" : "");
 
-    box.append(h("div", { class: "grab" }),
+    box.append(h("div", { class: "sheet-top" }, h("div", { class: "grab" }),
+        h("button", { type: "button", class: "sheet-x", "aria-label": "关闭", onclick: () => closeSheet() }, "关闭")),
       h("div", { class: "sheet-head" }, jacket(g, s.k, 88),
         h("div", null, h("h3", { text: s.t }), h("div", { class: "sub", text: [s.a, vers[s.v] || s.v, s.g].filter(Boolean).join(" · ") }))),
       h("div", { class: "difftabs" }, s.charts.filter((x) => g !== "sdvx" || x.x || !c.x).map((x) =>
@@ -545,6 +604,7 @@
     const saveBtn = h("button", { type: "button", class: "primary", text: login ? "保存" : "登录后才能传分", disabled: !login, onclick: save });
     const row = h("div", { class: "row" }, saveBtn);
     if (rec && login) row.append(h("button", { type: "button", class: "danger", text: "删除这条", onclick: del }));
+    row.append(h("button", { type: "button", class: "ghost", text: "取消", onclick: () => closeSheet() }));
     box.append(err, row);
     box.append(aliasBox(s));
 
@@ -599,7 +659,11 @@
       S.summary[g] = d.summary;
       renderSum();
       const dl = d.delta ? "，" + (g === "sdvx" ? "VF " : "rating ") + (d.delta > 0 ? "+" : "") + fk(d.delta) : "";
-      toast("已保存：" + s.t + " " + c.d + " " + comma(d.record.s) + (d.kept_higher ? "（保留了之前更高的）" : "") + dl, true);
+      // 比之前高：分数从旧的滚上去，判定字 NEW RECORD；第一次传 / 没变高：比个耶
+      const better = !!rec && !d.kept_higher && d.record.s > rec.s;
+      const num = h("b", { class: "roll", text: comma(d.record.s) });
+      toast(h("span", null, "已保存：" + s.t + " " + c.d + " ", num, (d.kept_higher ? "（保留了之前更高的）" : "") + dl), better ? "cheer" : true);
+      if (better) { rollNum(num, rec.s, d.record.s, 800); if (Y) Y.judge("NEW RECORD", { small: true, top: "30%", sub: "+" + comma(d.record.s - rec.s) }); }
       closeSheet();
       S.saves += 1;
       S.just = c.key;                                     // 刚传的那张难度块闪一下
@@ -625,9 +689,14 @@
       if (e.key !== "Enter" || e.target.closest(".aliases") || e.isComposing) return;
       e.preventDefault(); save();
     };
+    const wasOpen = !$("sheet").hidden;
     $("sheet").hidden = false; $("sheetBg").hidden = false;
-    document.body.style.overflow = "hidden";
-    if (login) setTimeout(() => { inp.focus(); inp.select(); }, 60);
+    box.scrollTop = 0; box.style.transform = "";
+    lockPage(); fitSheet();
+    if (!wasOpen) { try { history.pushState({ sheet: 1 }, ""); sheetLock.pushed = true; } catch (e) { /* 有的内置浏览器不让改历史 */ } }
+    // 电脑上直接把光标放进分数框；手机上不自动弹键盘（一弹键盘整个页面就跟着跳），点一下分数那块再打
+    const touch = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    if (login && !touch) setTimeout(() => { inp.focus(); inp.select(); }, 60);
   }
 
   function aliasBox(s) {
@@ -694,46 +763,174 @@
 
   // ---------- SDVX 名片：六维图 + 领航员（和 QQ 里 /sdvx 雷达、/sdvx 领航员 是同一份） ----------
   const RADAR_AXES = ["NOTES", "PEAK", "TSUMAMI", "TRICKY", "HAND-TRIP", "ONE-HAND"];
-  const RADAR_COLORS = ["#50e2ec", "#ff5468", "#ff78c8", "#f2dc40", "#b270ff", "#70e870"];
+  const RADAR_COLORS = ["#40e0d8", "#ff3860", "#f03cc8", "#e8e430", "#9654ff", "#38e050"];
+  const RADAR_LABELS = ["NOTES", "PEAK", "TSUMAMI", "TRICKY", "HAND TRIP", "ONE HAND"];   // 游戏个人卡上的写法
   function svgEl(tag, attrs, text) {
     const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
     Object.entries(attrs || {}).forEach(([k, v]) => el.setAttribute(k, String(v)));
     if (text) el.textContent = text;
     return el;
   }
-  function radarSvg(vals) {
+  function radarSvg(vals) {                               // 照游戏个人卡那个画：黑圆底、带刻度的细轴、橙红一块；圈 = 100，超过就伸到圈外（爆表）
     const has = vals && vals.some((v) => v > 0);
-    const mx = has ? Math.max(...vals) : 0;
-    const scale = mx <= 100 ? 100 : Math.ceil(mx / 50) * 50;
-    const cx = 160, cy = 122, r = 84;
-    const pt = (k, f) => { const a = -Math.PI / 2 + k * Math.PI / 3; return [cx + Math.cos(a) * r * f, cy + Math.sin(a) * r * f]; };
-    const poly = (f) => [0, 1, 2, 3, 4, 5].map((k) => pt(k, typeof f === "function" ? f(k) : f).map((n) => n.toFixed(1)).join(",")).join(" ");
-    const svg = svgEl("svg", { viewBox: "0 0 320 244", class: "radar-svg", role: "img", "aria-label": "六维图" });
-    [1, 0.75, 0.5, 0.25].forEach((f) => svg.append(svgEl("polygon", { points: poly(f), class: "rg" })));
-    for (let k = 0; k < 6; k++) { const [x, y] = pt(k, 1); svg.append(svgEl("line", { x1: cx, y1: cy, x2: x.toFixed(1), y2: y.toFixed(1), class: "rg" })); }
-    if (has) svg.append(svgEl("polygon", { points: poly((k) => Math.min(1, Math.max(0, (vals[k] || 0) / scale))), class: "rf" }));
+    const cx = 170, cy = 150, r = 74, OVER = 1.75;
+    const ang = (k) => -Math.PI / 2 + k * Math.PI / 3;
+    const pt = (k, f) => [cx + Math.cos(ang(k)) * r * f, cy + Math.sin(ang(k)) * r * f];
+    const svg = svgEl("svg", { viewBox: "0 0 340 300", class: "radar-svg", role: "img", "aria-label": "六维图" });
+    const defs = svgEl("defs");
+    const grad = svgEl("radialGradient", { id: "radar-g", gradientUnits: "userSpaceOnUse", cx, cy, r: r * 1.3 });
+    grad.append(svgEl("stop", { offset: "0", "stop-color": "#ff7a28" }), svgEl("stop", { offset: "1", "stop-color": "#ec361e" }));
+    defs.append(grad);
+    svg.append(defs, svgEl("circle", { cx, cy, r, class: "rb" }));
+    const axes = (cls) => {
+      const g = svgEl("g", { class: cls });
+      for (let k = 0; k < 6; k++) {
+        const [x, y] = pt(k, 1);
+        g.append(svgEl("line", { x1: cx, y1: cy, x2: x.toFixed(1), y2: y.toFixed(1) }));
+        const nx = -Math.sin(ang(k)) * 3, ny = Math.cos(ang(k)) * 3;
+        [0.25, 0.5, 0.75].forEach((f) => { const [px, py] = pt(k, f); g.append(svgEl("line", { x1: (px - nx).toFixed(1), y1: (py - ny).toFixed(1), x2: (px + nx).toFixed(1), y2: (py + ny).toFixed(1) })); });
+      }
+      return g;
+    };
+    svg.append(axes("rg"));
+    if (has) {
+      const points = [0, 1, 2, 3, 4, 5].map((k) => pt(k, Math.min(OVER, Math.max(0.03, (vals[k] || 0) / 100))).map((n) => n.toFixed(1)).join(",")).join(" ");
+      svg.append(svgEl("polygon", { points, class: "rf", fill: "url(#radar-g)" }));
+    }
     const anc = ["middle", "start", "start", "middle", "end", "end"];
     for (let k = 0; k < 6; k++) {
-      const [x, y] = pt(k, 1.13);
-      svg.append(svgEl("text", { x: x.toFixed(1), y: (y + (k === 0 ? -2 : k === 3 ? 10 : 4)).toFixed(1), "text-anchor": anc[k], fill: RADAR_COLORS[k], class: "rl" }, RADAR_AXES[k]));
+      const [x, y] = pt(k, 1);
+      const dx = Math.cos(ang(k)), dy = Math.sin(ang(k));
+      const ty = dy < -0.7 ? y - 7 : dy > 0.7 ? y + 16 : y + (dy < 0 ? -4 : 12);
+      svg.append(svgEl("text", { x: (x + dx * 8).toFixed(1), y: ty.toFixed(1), "text-anchor": anc[k], fill: RADAR_COLORS[k], class: "rl" }, RADAR_LABELS[k]));
     }
     return svg;
   }
-  function shrinkImage(file) {                            // 手机原图十几 MB：先在浏览器里缩到长边 1400 再传
-    return new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const im = new Image();
-      im.onload = () => {
-        const k = Math.min(1, 1400 / Math.max(im.naturalWidth, im.naturalHeight));
-        const c = document.createElement("canvas");
-        c.width = Math.max(1, Math.round(im.naturalWidth * k)); c.height = Math.max(1, Math.round(im.naturalHeight * k));
-        c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
-        URL.revokeObjectURL(url);
-        resolve(c.toDataURL(file.type === "image/png" ? "image/png" : "image/jpeg", 0.92));
-      };
-      im.onerror = () => { URL.revokeObjectURL(url); reject(new Error("decode")); };
-      im.src = url;
+  // 读图：本站的安全设置只认 data: 图，blob: 链接会被浏览器拦下（v3.1.1 以前就是这里坏的，所有图都「读不了」）。
+  // 先用 createImageBitmap（不经过 <img>，也会按照片方向转正），不行再读成 data: 链接。
+  async function decodeImage(file) {
+    if (window.createImageBitmap) {
+      try { return await createImageBitmap(file, { imageOrientation: "from-image" }); } catch (e) { /* 老浏览器不认第二个参数 */ }
+      try { return await createImageBitmap(file); } catch (e) { /* 再换个办法 */ }
+    }
+    const url = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(file); });
+    return await new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(im); im.onerror = bad; im.src = url; });
+  }
+  const NAV_W = 968, NAV_H = 374;                         // B50 上领航员那一块的大小（scorebook/sdvx_img.py 的名片条）
+  const CROP_NAV = { aw: NAV_W, ah: NAV_H, out: [1400, Math.round(1400 * NAV_H / NAV_W)], guide: "face",
+    title: "框出 B50 上要露出来的那块", hint: "拖动挪位置，两指捏或者拉下面的滑条放大。虚线小方块是左上角头像自动取的那块（下一步也可以单独框）。" };
+  const CROP_FACE = { aw: 1, ah: 1, out: [512, 512], guide: "hex",
+    title: "框出头像", hint: "B50 名牌左边那个六边形。把脸放进六边形里，拖动挪位置、两指捏或者滑条放大。" };
+  // 框选：框的形状就是 B50 上那一块；拖动挪图、两指捏 / 滑条 / 滚轮缩放。
+  // opt.guide = "face"：画出头像自动取的那块；"hex"：画出名牌上的六边形。opt.skip / opt.extra：多一个按钮（[字, 回调]）。
+  function cropper(src, opt, onDone) {
+    const sw = src.width, shh = src.height;
+    const bg = h("div", { class: "crop-bg" });
+    const cv = h("canvas", { class: "crop-cv" });
+    const zoom = h("input", { type: "range", min: "0", max: "1000", value: "0", class: "crop-zoom", "aria-label": "缩放" });
+    const box = h("div", { class: "crop", role: "dialog", "aria-modal": "true" },
+      h("h3", { text: opt.title }), h("div", { class: "old", text: opt.hint }),
+      cv,
+      h("label", { class: "crop-z" }, h("span", { text: "缩放" }), zoom),
+      h("div", { class: "row tight" },
+        h("button", { type: "button", class: "primary", text: opt.ok || "用这块", onclick: done }),
+        opt.skip ? h("button", { type: "button", class: "ghost", text: opt.skip[0], onclick: () => { close(); opt.skip[1](); } }) : null,
+        opt.extra ? h("button", { type: "button", class: "ghost", text: opt.extra[0], onclick: () => { close(); opt.extra[1](); } }) : null,
+        h("button", { type: "button", class: "ghost", text: "居中", onclick: () => { fit(); draw(); } }),
+        h("button", { type: "button", class: "ghost", text: "取消", onclick: close })));
+    bg.append(box);
+    document.body.append(bg);
+    lockPage();
+    let W = 0, H = 0, fx = 0, fy = 0, fw = 0, fh = 0, k = 1, kMin = 1, x = 0, y = 0;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    function layout() {
+      W = Math.min(box.clientWidth - 32, 640);
+      H = Math.round(Math.min(opt.aw >= opt.ah ? W * 0.72 : W, window.innerHeight * 0.5));
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+      cv.style.width = W + "px"; cv.style.height = H + "px";
+      fw = W - 24; fh = fw * opt.ah / opt.aw;
+      if (fh > H - 24) { fh = H - 24; fw = fh * opt.aw / opt.ah; }
+      fx = (W - fw) / 2; fy = (H - fh) / 2;
+      kMin = Math.max(fw / sw, fh / shh);
+    }
+    function fit() {                                      // 默认：铺满框，横向居中、偏上（和以前自动取的位置一样）
+      k = kMin; x = fx + (fw - sw * k) / 2; y = fy - (shh * k - fh) * (opt.guide === "hex" ? 0.1 : 0.18); zoom.value = "0";
+    }
+    function clamp() {
+      k = Math.max(kMin, Math.min(kMin * 8, k));
+      x = Math.min(fx, Math.max(fx + fw - sw * k, x));
+      y = Math.min(fy, Math.max(fy + fh - shh * k, y));
+    }
+    function label(c, t, lx, ly) {
+      c.font = "600 11px -apple-system, 'PingFang SC', sans-serif"; c.textBaseline = "top";
+      const tw = c.measureText(t).width;
+      c.fillStyle = "rgba(0,0,0,.6)"; c.fillRect(lx, ly, tw + 8, 16);
+      c.fillStyle = "#fff"; c.fillText(t, lx + 4, ly + 2);
+    }
+    function draw() {
+      clamp();
+      const c = cv.getContext("2d");
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c.clearRect(0, 0, W, H);
+      c.fillStyle = "#111"; c.fillRect(0, 0, W, H);
+      c.imageSmoothingQuality = "high";
+      c.drawImage(src, x, y, sw * k, shh * k);
+      c.fillStyle = "rgba(0,0,0,.58)";                    // 框外压暗
+      c.beginPath(); c.rect(0, 0, W, H); c.rect(fx, fy, fw, fh); c.fill("evenodd");
+      c.strokeStyle = "#fff"; c.lineWidth = 2; c.strokeRect(fx, fy, fw, fh);
+      if (opt.guide === "face") {                         // 头像自动取：这一块的上方居中、边长 = 高的 0.62
+        const side = fh * 0.62, ax = fx + (fw - side) / 2, ay = fy + fh * 0.06;
+        c.lineWidth = 3; c.strokeStyle = "rgba(0,0,0,.55)"; c.strokeRect(ax, ay, side, side);
+        c.setLineDash([6, 4]); c.lineWidth = 1.6; c.strokeStyle = "#fff"; c.strokeRect(ax, ay, side, side);
+        c.setLineDash([]);
+        label(c, "头像", ax, ay);
+      } else if (opt.guide === "hex") {                   // 名牌上的六边形：左右两个尖、上下是平的，宽 = 框宽
+        const cx = fx + fw / 2, cy = fy + fh / 2, r = fw / 2;
+        const hex = () => { c.beginPath(); for (let i = 0; i < 6; i++) { const t = Math.PI / 3 * i; c[i ? "lineTo" : "moveTo"](cx + r * Math.cos(t), cy + r * Math.sin(t)); } c.closePath(); };
+        c.fillStyle = "rgba(0,0,0,.4)"; c.beginPath(); c.rect(fx, fy, fw, fh);
+        for (let i = 0; i < 6; i++) { const t = Math.PI / 3 * i; c[i ? "lineTo" : "moveTo"](cx + r * Math.cos(t), cy + r * Math.sin(t)); }
+        c.closePath(); c.fill("evenodd");
+        hex(); c.lineWidth = 3; c.strokeStyle = "rgba(0,0,0,.55)"; c.stroke();
+        hex(); c.setLineDash([6, 4]); c.lineWidth = 1.6; c.strokeStyle = "#7dffc4"; c.stroke(); c.setLineDash([]);
+      }
+    }
+    function zoomAt(nk, px, py) {                         // 以 (px, py) 为中心缩放
+      nk = Math.max(kMin, Math.min(kMin * 8, nk));
+      x = px - (px - x) * nk / k; y = py - (py - y) * nk / k; k = nk;
+      zoom.value = String(Math.round(Math.log(k / kMin) / Math.log(8) * 1000));
+      draw();
+    }
+    zoom.addEventListener("input", () => zoomAt(kMin * Math.pow(8, zoom.value / 1000), fx + fw / 2, fy + fh / 2));
+    const pts = new Map();
+    let pinch = null;
+    cv.addEventListener("pointerdown", (e) => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.offsetX, e.offsetY]); pinch = null; });
+    cv.addEventListener("pointermove", (e) => {
+      if (!pts.has(e.pointerId)) return;
+      const prev = pts.get(e.pointerId), cur = [e.offsetX, e.offsetY];
+      pts.set(e.pointerId, cur);
+      if (pts.size === 1) { x += cur[0] - prev[0]; y += cur[1] - prev[1]; draw(); return; }
+      const [a, b2] = [...pts.values()];
+      const d = Math.hypot(a[0] - b2[0], a[1] - b2[1]);
+      if (pinch) zoomAt(k * d / pinch, (a[0] + b2[0]) / 2, (a[1] + b2[1]) / 2);
+      pinch = d;
     });
+    const up = (e) => { pts.delete(e.pointerId); pinch = null; };
+    cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+    cv.addEventListener("wheel", (e) => { e.preventDefault(); zoomAt(k * Math.exp(-e.deltaY / 400), e.offsetX, e.offsetY); }, { passive: false });
+    function onResize() { const cx = (fx + fw / 2 - x) / k, cy = (fy + fh / 2 - y) / k, rel = k / kMin; layout(); k = kMin * rel; x = fx + fw / 2 - cx * k; y = fy + fh / 2 - cy * k; draw(); }
+    window.addEventListener("resize", onResize);
+    function close() { window.removeEventListener("resize", onResize); bg.remove(); if ($("sheet").hidden && !document.querySelector(".crop-bg")) unlockPage(); }
+    function done() {                                     // 按框里那块切出来
+      const out = h("canvas");
+      out.width = opt.out[0]; out.height = opt.out[1];
+      const c = out.getContext("2d");
+      c.imageSmoothingQuality = "high";
+      c.drawImage(src, (fx - x) / k, (fy - y) / k, fw / k, fh / k, 0, 0, out.width, out.height);
+      const data = out.toDataURL("image/jpeg", 0.92);
+      close();
+      onDone(data);
+    }
+    layout(); fit(); draw();
   }
   async function loadProfile() {
     const r = await api("/api/sb/profile");
@@ -769,7 +966,7 @@
       h("h3", { text: "六维图" }),
       h("div", { class: "radar-wrap" }, svgBox,
         h("div", { class: "radar-in" }, RADAR_AXES.map((a, k) => { const l = h("label", null, h("i", null), a, inputs[k]); l.firstChild.style.background = RADAR_COLORS[k]; return l; }))),
-      h("div", { class: "old", text: "照游戏里个人卡上的六维图填，从 NOTES 开始顺时针。卡上没标数字就照形状估个 0～100。" }),
+      h("div", { class: "old", text: "照游戏个人卡上每个角旁边的数字填（带小数也行），从 NOTES 开始顺时针。圈是 100，超过 100 的会画到圈外面。" }),
       h("div", { class: "row tight" },
         h("button", { type: "button", class: "primary", text: "保存六维图", onclick: () => saveRadar(false) }),
         P.radar ? h("button", { type: "button", class: "ghost", text: "删掉", onclick: () => saveRadar(true) }) : null, rMsg));
@@ -777,6 +974,9 @@
     const pic = h("div", { class: "nav-pic" + (P.img ? "" : " empty") });
     if (P.img) pic.append(h("img", { src: "/api/sb/nav.png?v=" + P.img, alt: "领航员" }));
     else pic.append(h("span", { text: "还没有领航员图" }));
+    // 头像预览：单独框过的用那张；没框过的从领航员图上照 B50 那样自动取（上方居中）
+    const faceBox = P.img ? h("div", { class: "nav-face" + (P.face ? "" : " auto") },
+      h("img", { src: P.face ? "/api/sb/nav_face.png?v=" + P.face : "/api/sb/nav.png?v=" + P.img, alt: "头像" })) : null;
     const nameIn = h("input", { type: "text", maxlength: "24", class: "small-in", placeholder: "名字（可不填）", value: P.nav || "" });
     const file = h("input", { type: "file", accept: "image/*", hidden: true });
     let busy = false;
@@ -784,17 +984,45 @@
       const f = file.files && file.files[0];
       file.value = "";
       if (!f || busy) return;
+      let src;
+      try { src = await decodeImage(f); } catch (e) { toast("这张图浏览器打不开（像 HEIC 这种），换成 JPG / PNG 再试"); return; }
+      // 两步：先框 B50 上那一块，再框头像（同一张原图；也可以跳过，头像就从第一步那块里自动取）
+      cropper(src, CROP_NAV, (img) => cropper(src, { ...CROP_FACE, skip: ["头像自动取", () => upload({ img })] },
+        (face) => upload({ img, face })));
+    });
+    const faceFile = h("input", { type: "file", accept: "image/*", hidden: true });
+    faceFile.addEventListener("change", async () => {     // 头像用另一张图
+      const f = faceFile.files && faceFile.files[0];
+      faceFile.value = "";
+      if (!f || busy) return;
+      let src;
+      try { src = await decodeImage(f); } catch (e) { toast("这张图浏览器打不开（像 HEIC 这种），换成 JPG / PNG 再试"); return; }
+      cropper(src, CROP_FACE, (face) => upload({ face }));
+    });
+    async function upload(body) {
+      if (busy) return;
       busy = true; toast("正在上传…");
       try {
-        let data;
-        try { data = await shrinkImage(f); } catch (e) { toast("这个格式浏览器读不了，换成 JPG / PNG 再试"); return; }
-        if (data.length > 7.5 * 1024 * 1024) { toast("图太大了"); return; }
-        const r = await api("/api/sb/nav", { img: data, name: nameIn.value });
-        if (!r.ok) { toast(r.message || "没传上"); return; }
+        if (((body.img || "").length + (body.face || "").length) > 7.5 * 1024 * 1024) { toast("图太大了"); return; }
+        const r = await api("/api/sb/nav", { ...body, name: nameIn.value });
+        if (!r.ok) { toast(r.offline ? "没连上，网好一点再试" : (r.message || "没传上")); return; }
         S.profile = r; box.replaceWith(profilePanel());
-        toast("领航员图换好了，QQ 里发 /sdvx b50 看看", true);
+        toast((body.img ? "领航员图" : "头像") + "换好了，QQ 里发 /sdvx b50 看看", true);
       } finally { busy = false; }
-    });
+    }
+    async function current() {                            // 已经传过的领航员图（B50 上那一块）
+      const res = await fetch("/api/sb/nav.png?v=" + P.img, { credentials: "same-origin" });
+      if (!res.ok) throw new Error(String(res.status));
+      return decodeImage(await res.blob());
+    }
+    async function recrop() {                             // 再调一次范围（头像不动）
+      try { cropper(await current(), CROP_NAV, (img) => upload({ img, keep_face: true })); }
+      catch (e) { toast("读不到原来那张图，重新选一张吧"); }
+    }
+    async function reface() {                             // 头像单独框：默认从领航员图上框，也能换一张图
+      try { cropper(await current(), { ...CROP_FACE, extra: ["用另一张图", () => faceFile.click()] }, (face) => upload({ face })); }
+      catch (e) { toast("读不到原来那张图，重新选一张吧"); }
+    }
     async function saveName() {
       const r = await api("/api/sb/nav", { name: nameIn.value });
       if (!r.ok) { toast(r.message || "没存上"); return; }
@@ -809,9 +1037,14 @@
     const navSec = h("div", { class: "prof-col" },
       h("h3", { text: "领航员" }),
       pic,
-      h("div", { class: "old", text: "框里就是 B50 上会露出来的部分（宽条、偏上取）。最好先把照片裁到只剩领航员。图只用在你自己的 B50 上。" }),
+      faceBox ? h("div", { class: "face-row" }, faceBox,
+        h("div", { class: "old", text: P.face ? "头像是单独框的（B50 名牌左边那个六边形）。" : "头像现在是从上面那张图自动取的，可以单独框。" })) : null,
+      h("div", { class: "old", text: "框里就是 B50 上会露出来的部分。选完图会让你框一下要哪块，再单独框头像。图只用在你自己的 B50 上。" }),
       h("div", { class: "row tight" },
         h("label", { class: "primary filebtn" }, P.img ? "换一张图" : "选一张图", file),
+        P.img ? h("button", { type: "button", class: "ghost", text: "调整范围", onclick: recrop }) : null,
+        P.img ? h("button", { type: "button", class: "ghost", text: "调整头像", onclick: reface }) : null,
+        faceFile,
         nameIn,
         h("button", { type: "button", class: "ghost", text: "存名字", onclick: saveName }),
         (P.img || P.nav) ? h("button", { type: "button", class: "ghost", text: "删掉", onclick: clearNav }) : null));
@@ -863,6 +1096,7 @@
   async function setGame(g) {
     S.game = g; S.hits = null; S.shown = 50; S.batch = null;
     document.body.dataset.game = g;
+    if (Y) Y.sky($("sky"), [g], window.innerWidth < 720 ? 7 : 12);
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", g === "geki" ? "#ffd9e6" : "#101317"));
     $("constBox").hidden = g !== "geki";
     $("extraName").textContent = g === "sdvx" ? "显示 EX SCORE" : "显示白金分";
@@ -967,7 +1201,7 @@
     $("bParse").disabled = true;
     const d = await api("/api/sb/batch", { game: g, text });
     $("bParse").disabled = false;
-    if (!d.ok) { toast(d.message || "识别失败"); return; }
+    if (!d.ok) { toast(d.message || "识别失败", "surprise"); return; }
     S.batch = d.rows.map((r) => ({ ...r, use: !!r.ok }));
     S.batchCsv = !!d.csv;
     renderBatch();
@@ -1054,7 +1288,7 @@
       footBtn.disabled = true;
       const d = await api("/api/sb/batch_apply", { game: g, overwrite: over.checked,
         rows: pick.map((r) => ({ key: r.key, score: r.score, lamp: r.lamp, fb: r.fb, stars: r.stars, plat: r.plat, ex: r.ex })) });
-      if (!d.ok) { toast(d.message || "没传上"); refreshFoot(); if (d._status === 401) { S.me.login = false; showGuest(); } return; }
+      if (!d.ok) { toast(d.message || "没传上", "surprise"); refreshFoot(); if (d._status === 401) { S.me.login = false; showGuest(); } return; }
       S.scores[g] = d.scores || S.scores[g]; S.summary[g] = d.summary; renderSum();
       const word = g === "sdvx" ? "VF" : "rating";
       const dl = d.delta ? "（" + word + " " + (d.delta > 0 ? "+" : "") + fk(d.delta) + "）" : "";
@@ -1065,7 +1299,7 @@
         h("div", { class: "row tight mt" },
           h("button", { type: "button", class: "primary", text: "看我的成绩", onclick: () => setView("mine") }),
           h("button", { type: "button", class: "ghost", text: "再传一批", onclick: () => { $("bText").value = ""; out.replaceChildren(); $("bText").focus(); } }))));
-      toast("传好了 " + d.done + " 张" + dl);
+      toast("传好了 " + d.done + " 张" + dl, "heart");
       S.batch = null;
     });
     refreshFoot();
@@ -1128,7 +1362,7 @@
         copyTimer = setTimeout(() => { copyBtn.classList.remove("done"); tip.textContent = "点一下复制"; }, 4000);
       });
       const box = h("div", { class: "pend-bg" }, h("div", { class: "pend" },
-        h("img", { class: "pend-girl", src: "/img/yume-shh.webp", alt: "", width: 520, height: 386 }),
+        Y ? Y.bust(h("div", { class: "pend-girl" }), "shh", .42).el : null,
         h("div", { class: "pend-rule" }, h("i"), h("i")),
         h("div", { class: "pend-t", text: "还差一步：确认是你本人" }),
         h("div", { class: "pend-code", text: d.code }),
@@ -1213,13 +1447,28 @@
     return !(seen || hp.get("k") || hp.get("q"));
   })();
   if (!gateOn) $("gate").hidden = true;
-  function gateClose() {
+  let gateFig = null;
+  const DOOR_POSE = { sdvx: "point", geki: "heart" };
+  if (Y) Y.links();
+  if (Y && gateOn) gateFig = Y.figure($("gateGirl"), { view: .56, pose: "wave", track: true });
+  function gateClose(door) {
     if (!gateOn) return;
     gateOn = false;
     try { sessionStorage.setItem("sb_gate", "1"); } catch (e) { /* 无痕模式 */ }
     const gate = $("gate");
     window.scrollTo(0, 0);
     if (calm) { gate.hidden = true; return; }
+    if (door) {                                           // 从点的那扇门铺开
+      const r = door.getBoundingClientRect(), fill = h("div", { class: "gate-fill " + door.dataset.game });
+      fill.style.setProperty("--x", (r.left + r.width / 2).toFixed(0) + "px");
+      fill.style.setProperty("--y", (r.top + r.height / 2).toFixed(0) + "px");
+      document.body.append(fill);
+      if (gateFig) gateFig.pose("cheer");
+      document.body.classList.add("entering");
+      setTimeout(() => { gate.hidden = true; fill.classList.add("out"); }, 460);
+      setTimeout(() => { fill.remove(); document.body.classList.remove("entering"); }, 1000);
+      return;
+    }
     gate.classList.add("leave");
     document.body.classList.add("entering");
     setTimeout(() => { gate.hidden = true; }, 360);
@@ -1243,9 +1492,14 @@
     document.querySelectorAll("#gate .door").forEach((b) => {
       b.disabled = false;
       b.classList.toggle("cur", b.dataset.game === S.game);
+      const look = (on) => { if (gateFig && gateOn) gateFig.pose(on ? DOOR_POSE[b.dataset.game] : "wave"); };
+      b.addEventListener("pointerenter", () => look(true));
+      b.addEventListener("pointerleave", () => look(false));
+      b.addEventListener("focus", () => look(true));
+      b.addEventListener("blur", () => look(false));
       b.addEventListener("click", async () => {
         if (b.dataset.game !== S.game) await setGame(b.dataset.game);
-        gateClose();
+        gateClose(b);
       });
     });
   }
@@ -1302,7 +1556,15 @@
     $("more").addEventListener("click", () => { S.shown += 50; renderList(); });
     document.querySelectorAll("#games button").forEach((b) => b.addEventListener("click", () => setGame(b.dataset.game)));
     document.querySelectorAll(".views button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
-    $("sheetBg").addEventListener("click", closeSheet);
+    $("sheetBg").addEventListener("click", () => closeSheet());
+    $("sheetBg").addEventListener("touchmove", (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+    sheetDrag($("sheetIn"));
+    try { history.scrollRestoration = "manual"; } catch (e) { /* 老浏览器没有 */ }
+    window.addEventListener("popstate", () => {
+      if (S.sheet || !$("sheet").hidden) { closeSheet(true); return; }
+      if (sheetLock.back != null) { window.scrollTo(0, sheetLock.back); sheetLock.back = null; }
+    });
+    if (window.visualViewport) { window.visualViewport.addEventListener("resize", fitSheet); window.visualViewport.addEventListener("scroll", fitSheet); }
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.sheet) closeSheet(); });
     // 页面开着时又点了新链接：浏览器只改 # 不重新加载，这里接住
     window.addEventListener("hashchange", () => applyHash(false));

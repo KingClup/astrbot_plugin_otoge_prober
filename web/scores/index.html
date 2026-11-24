@@ -8,16 +8,19 @@
 <meta name="theme-color" content="#101317" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#101317" media="(prefers-color-scheme: dark)">
 <title>{{BOT}} · 传分</title>
-<link rel="stylesheet" href="/scores/app.css?v=2555">
+<link rel="stylesheet" href="/yume.css?v=300">
+<link rel="stylesheet" href="/scores/app.css?v=312">
+<script src="/yume.js?v=300"></script>
 </head>
 <body data-game="sdvx">
+<div id="sky" aria-hidden="true"></div>
 <div class="gate" id="gate">
   <div class="gate-in">
-    <div class="gbar">{{BOT}} 音游查分</div>
+    <a class="gbar" href="/">{{BOT}} 音游查分</a>
     <div class="grule" aria-hidden="true"><i></i><i></i></div>
     <div class="gstage">
       <div class="garch" aria-hidden="true"></div>
-      <img class="ggirl" src="/img/yume-wave.webp" alt="" width="640" height="788" decoding="async">
+      <div class="ggirl" id="gateGirl" aria-hidden="true"></div>
       <p class="ghello" aria-hidden="true">来传<br>分吧</p>
       <p class="gsub" id="gateWho">正在看你登录了没有…</p>
     </div>
@@ -41,7 +44,7 @@
       <button type="button" data-game="geki" role="tab">音击</button>
     </div>
   </div>
-  <div class="bar-in herobox"><div class="hero" id="sum"></div><img class="hero-girl" id="heroGirl" src="/img/yume-pass.webp" alt="" width="520" height="385" decoding="async"></div>
+  <div class="bar-in herobox"><div class="hero" id="sum"></div><div class="hero-girl" id="heroGirl" aria-hidden="true"></div></div>
   <nav class="bar-in views" role="tablist" aria-label="页面">
     <button type="button" data-view="find" class="on" role="tab">找歌传分</button>
     <button type="button" data-view="batch" role="tab">批量传分</button>
@@ -51,6 +54,7 @@
 
 <main class="wrap">
   <section class="notice" id="guest" hidden>
+    <div class="notice-girl" id="guestGirl" aria-hidden="true"></div>
     现在是只读模式：能逛曲库、试批量格式，传分要先登录。在 QQ 里发 <code>/传分</code>，点它回你的链接就登录了（30 天内不用再点）；别的设备登录过、这台还没有的话，发 <code>/传分 登录</code>。
   </section>
 
@@ -126,6 +130,6 @@
 </section>
 <div class="toast" id="toast" hidden role="status"></div>
 
-<script src="/scores/app.js?v=2555"></script>
+<script src="/scores/app.js?v=312"></script>
 </body>
 </html>

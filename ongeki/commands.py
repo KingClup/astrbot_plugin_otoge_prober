@@ -184,6 +184,8 @@ class GekiCommands:
                     img = await self._image(best)
                     self._img_cache = {ckey + str(best.show_plat): img}        # 只留最近一张（一张 1～3 MB）
                 r = Reply(image=img)
+                _v = best.shown if best.shown is not None else best.calc
+                r.card = ("geki", (_v / 1000) if _v is not None else None, "私服")
                 if best.calc is not None and best.shown is not None and best.calc != best.shown:
                     r.say("（图上「计算值」是按定数表重算的；跟服务器显示的差一点时以服务器为准）")
                 return r

@@ -52,6 +52,12 @@ _GIRL_DIR = __import__("pathlib").Path(__file__).resolve().parent.parent / "web"
 _girls: dict = {}
 
 
+# v3.0.0：看板娘换成和网站同一套的全身动作差分（yume-p-*.webp，634×1400）；老的半身图名字还认，对到新动作上
+_POSE_ALIAS = {"hello": "wave", "pass": "card", "gone": "pout"}
+_GIRL_TOP = 0.62                     # 只取到裙摆（页头只露上半身，再往下反正被裁掉）
+_GIRL_SCALE = 0.9                    # 新图人物几乎占满画框，同样的宽度看着比老图大一圈，收一点
+
+
 def _girl(pose: str, width: int):
     """看板娘（包里没有这张图——公开版——就不画）。"""
     key = (pose, width)
@@ -59,9 +65,12 @@ def _girl(pose: str, width: int):
         im = None
         try:
             from PIL import Image
-            with Image.open(_GIRL_DIR / f"yume-{pose}.webp") as src:
+            name = _POSE_ALIAS.get(pose, pose)
+            with Image.open(_GIRL_DIR / (f"yume-p-{name}.webp" if name else "yume-full.webp")) as src:
                 src = src.convert("RGBA")
-                im = src.resize((width, max(1, int(src.height * width / src.width))), Image.LANCZOS)
+                src = src.crop((0, 0, src.width, int(src.height * _GIRL_TOP)))
+                w = max(1, int(width * _GIRL_SCALE))
+                im = src.resize((w, max(1, int(src.height * w / src.width))), Image.LANCZOS)
         except (OSError, ValueError):
             im = None
         _girls[key] = im
@@ -220,6 +229,7 @@ _topic(Topic("geki", "音击", GEKI, "指令 = /geki + 下面的词；也认 /�
     ], "NET 免费账号看不到成绩：没开 Standard 就用传分网站手动传"),
     Section("私服：自动查", [
         R("b50", ["[文字]", "[全]"], "新曲 10 + 旧曲 50 + P 分 50（Re:Fresh 算法）成绩图；「文字 全」列全部", ["/geki b50", "/geki b50 文字 全"]),
+        R("理论", ["[文字]"], "曲库里每张都 1,010,000 AB+ 的成绩图，不用绑定", ["/geki 理论"]),
         R("刷新", [], "刚打完想马上看：平时 10 分钟内重复查用的是上次的数据", ["/geki 刷新"]),
     ], "AquaDX"),
     Section("账号", [
@@ -245,6 +255,7 @@ _topic(Topic("sdvx", "SOUND VOLTEX", SDVX, "指令 = /sdvx + 下面的词；也�
         R("传", ["<歌>", "<难度>", "<分数>", "[灯]"], "聊天里直接传一条；灯 puc / uc / mxv / exc / comp / 没过；EX SCORE 写 ex4321", ["/sdvx 传 VICTIM mxm 9,912,345 uc ex4321"]),
         R("批量传", ["换行后一行一首"], "一次传很多首：曲名 | 难度 | 分数 | 灯；开了 e-amusement 会员的可以在网页「批量传分」直接选官网导出的 CSV", ["/sdvx 批量传（换行）VICTIM | MXM | 9912345 | UC"]),
         R("b50", ["[文字]"], "用传的成绩算 VOLFORCE 出图：段位徽章 + ★、单曲 VF ×50（50 张平均 = 总 VF）；传了 EX SCORE 也会显示", ["/sdvx b50", "/sdvx ex 关"]),
+        R("理论", ["[文字]"], "曲库里每张都 PUC 的 VF 50 图，不用传分", ["/sdvx 理论"]),
         R("成绩", ["<歌>"], "自己这首歌各难度传了多少", ["/sdvx 成绩 VICTIM"]),
         R("雷达", ["<6 个数>"], "照游戏个人卡填六维图（NOTES 起顺时针），画在 B50 上", ["/sdvx 雷达 80 65 40 55 30 45"]),
         R("领航员", ["[名字]"], "这条消息带一张图 → B50 上放你的领航员图（自己截的图）", ["/sdvx 领航员 レイシス"]),
@@ -348,6 +359,8 @@ _topic(Topic("more", "更多 · /查分", CORE, "/查分 也认 /score、/otoge"
           ["/传分", "/传分 sdvx VICTIM mxm", "/geki 传分 Demonia"], ("core",)),
         R("/传 · /批量传", ["[sdvx|音击]", "<歌> <难度> <分数>"], "不进网站直接传；不写游戏就按你上次传的那个。批量传换行一行一首（曲名 | 难度 | 分数 | 灯）",
           ["/传 sdvx VICTIM mxm 9912345 uc", "/批量传 音击（换行）Demonia | MAS | 1007321 | AB"], ("core",)),
+        R("/名片", ["[开/关/换链接]"], "公开的成绩名片：一个固定网址，放你最近查的 B50 图和 rating 走势，发给谁谁能看；自己开了才有，关了就删",
+          ["/名片 开", "/名片", "/名片 关"], ("core",)),
         R("/查分 账号", [], "你在每个游戏、每个区服绑了什么，默认查哪个；SDVX / 音击官服传了几张", ["/查分 账号"], ("core",)),
         R("/查分 进度", ["[文字]"], "各服现在是哪个版本 + 版本号、曲库和定数跟上没有；版本一变私聊通知主人", ["/查分 进度", "/查分 进度 文字"], ("core",)),
         R("/查分 区服", [], "区服怎么写", ["/查分 区服"], ("core",)),
@@ -356,7 +369,10 @@ _topic(Topic("more", "更多 · /查分", CORE, "/查分 也认 /score、/otoge"
         R("/查分 共享别名", [], "共享外号库：装了这个插件的 bot 互相分享外号（只发歌和外号，不带 QQ 号、群号）；看开关和条数",
           ["/查分 共享别名"], ("core",)),
         R("/查分 理论", [], "舞萌、中二六个服的理论 Rating 一起列（= /理论ra）", ["/查分 理论"], ("core",)),
+        R("/查分 统计", ["[天数]"], "最近几天多少人用、哪些指令用得多、绑定链接发出去多少绑成多少、网站被打开几次（机器人主人；只记次数，不记谁说了什么）",
+          ["/查分 统计", "/查分 统计 30"], ("core",)),
         R("/查分 llm", ["<开/关>"], "本群「@我 用大白话查分」开关（机器人主人），默认关", ["/查分 llm 开"], ("core",)),
+        R("/查分 邀请", ["<开/关>"], "本群「热闹时邀请玩猜歌」开关（机器人主人），默认关", ["/查分 邀请 开"], ("core",)),
         R("/查分 帮助", ["[主题]"], "总览；主题：舞萌 / 中二 / 音击 / sdvx / pjsk / 谱面 / 小游戏 / 更多 / 全", ["/查分 帮助 舞萌", "/查分 帮助 全"], ("core",)),
     ]),
 ]))
@@ -646,9 +662,9 @@ def _compose(bot_name: str, assets, blocks, colour, title, sub, right_pills=(), 
 
 
 # ---------------------------------------------------------------- pages
-# 每一页帮助用一个不一样的姿势（八个姿势都用上，别每页都是同一张）
-TOPIC_POSE = {"mai": "peace", "chu": "ok", "geki": "pass", "sdvx": "shh", "pjsk": "hello", "chart": "think",
-              "games": "gone", "more": "think"}
+# 每一页帮助用一个不一样的姿势（别每页都是同一张）
+TOPIC_POSE = {"mai": "peace", "chu": "ok", "geki": "card", "sdvx": "shh", "pjsk": "heart", "chart": "think",
+              "games": "surprise", "more": "curtsy"}
 
 
 def render_topic(key: str, bot_name: str = "AstrBot", assets=None) -> bytes:

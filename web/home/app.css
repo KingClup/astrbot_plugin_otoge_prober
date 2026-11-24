@@ -1,0 +1,652 @@
+/* 主页（v2.6.0）· 清楚系：白底、藏青、雾蓝，和绑定站 / 传分站入口页是一套。
+   布局：页眉双线 → 左字右拱窗的开场 → 一条斜的滚动条幅 → 两张「通行证」并排（绑定 / 传分）→ 一条双线串起来的 QQ 指令 → 页脚线上探头的看板娘。
+   动效全部在文件后半段，只有 html 上带 .fx（脚本加的，系统开了「减少动态效果」就不加）才会动；没有脚本时就是一张静态页。 */
+:root {
+  --bg: #fbfcfe; --card: #ffffff; --ink: #1b2a4a; --mute: #56637d; --line: #b9c2d3; --hair: #d8deea;
+  --mist: #e6effa; --blue: #8fb2d9; --blue-deep: #5f86b5; --on-ink: #ffffff; --hound: rgba(143, 178, 217, .30);
+  --mai: #2878eb; --chu: #f0b429; --geki: #ec5096; --sdvx: #8a46dc;
+  --serif: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", STSong, SimSun, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+  --mono: ui-monospace, Menlo, Consolas, monospace;
+  --ease: cubic-bezier(.2, .7, .2, 1); --io: cubic-bezier(.7, 0, .2, 1); --pop: cubic-bezier(.3, 1.5, .5, 1);
+  --navy: #1b2a4a; --fog: #8fb2d9; --gold: #e3c16a;   /* 幕布和光环：深浅色模式下都不变 */
+  --t0: 0s;                                            /* 页面自己的进场从什么时候开始：放开场时等幕布扫完 */
+  --gut: 20px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1626; --card: #162036; --ink: #eef2f9; --mute: #9aa6bd; --line: #3d4a66; --hair: #27324b;
+    --mist: #1a2640; --blue-deep: #a9c6e6; --on-ink: #0f1626; --hound: rgba(143, 178, 217, .16);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--sans); overflow-x: hidden; }
+html, body { overflow-x: clip; }      /* 斜条幅和探出拱窗的看板娘都会超出屏幕宽度：裁掉，不许横向滚动 */
+a { color: var(--ink); text-underline-offset: 3px; }
+button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid var(--blue-deep); outline-offset: 2px; }
+code { font-family: var(--mono); font-size: .9em; background: var(--mist); padding: 1px 5px; border-radius: 3px; }
+
+.page { max-width: 1040px; margin: 0 auto; padding: 28px var(--gut) 40px; display: flex; flex-direction: column; }
+
+/* ---------- 页眉：品牌行 + 一粗一细两条线 ---------- */
+.bar { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--mute); }
+.brand { letter-spacing: .08em; }
+.nav { display: flex; gap: 18px; }
+.nav a { color: var(--mute); text-decoration: none; letter-spacing: .08em; padding: 2px 0; border-bottom: 1.5px solid transparent; }
+.nav a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+.rule { margin-top: 16px; display: flex; flex-direction: column; gap: 4px; transform-origin: left center; }
+.rule i { display: block; height: 1.5px; background: var(--ink); }
+
+/* ---------- 开场：左边宋体大字，右边千鸟格拱窗 ---------- */
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; border-bottom: 1.5px solid var(--ink); }
+.stage-text { position: relative; z-index: 1; align-self: center; padding: 26px 0 30px; }
+.hello { margin: 0; font-family: var(--serif); font-weight: 300; font-size: clamp(34px, 9vw, 72px); line-height: 1.22; letter-spacing: .04em; white-space: nowrap;
+         text-shadow: 0 0 12px var(--bg), 0 0 12px var(--bg), 0 0 4px var(--bg); }
+.hello-sub { margin: 18px 0 0; max-width: 23em; font-size: 14px; line-height: 1.8; color: var(--mute); text-shadow: 0 0 8px var(--bg), 0 0 8px var(--bg); }
+/* 看板娘是七头身的全身立绘，站在开场区底下那条线上；拱窗在她身后，只到肩膀那么高 */
+.window { position: relative; width: 160px; height: 384px; --fa: .4529; }
+.arch {
+  position: absolute; left: 50%; bottom: 0; width: 96%; height: 74%; border-radius: 999px 999px 0 0;
+  transform: translateX(-50%);
+  background-color: var(--mist);
+  /* 千鸟格：和看板娘裙子同一个纹样，很淡 */
+  background-image:
+    linear-gradient(-45deg, var(--mist) 25%, transparent 25%, transparent 75%, var(--hound) 75%),
+    linear-gradient(-45deg, var(--hound) 25%, transparent 25%, transparent 75%, var(--mist) 75%),
+    linear-gradient(45deg, var(--hound) 17%, transparent 17%, transparent 25%, var(--hound) 25%,
+      var(--hound) 36%, transparent 36%, transparent 64%, var(--hound) 64%,
+      var(--hound) 75%, transparent 75%, transparent 83%, var(--hound) 83%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px, 8px 8px;
+}
+.cast { position: absolute; left: 50%; bottom: 0; height: 100%; aspect-ratio: var(--fa); cursor: pointer; -webkit-tap-highlight-color: transparent;
+        transform: translateX(-50%); }
+.cast-in { position: relative; width: 100%; height: 100%; }
+.girl { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-drag: none; }
+/* 会动的那一层：WebGL 画布，起得来才显示（脚本给 .window 加 .rigged），起不来就还是上面那张静态图 */
+.rig { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.window.rigged .rig { display: block; }
+.window.rigged .girl { visibility: hidden; }
+.halo { position: absolute; left: 50%; top: 30%; width: 62%; height: auto; transform: translateX(-50%); display: none; }
+.halo .ring { fill: none; stroke: var(--blue-deep); stroke-width: 1.5; }
+.halo .star { fill: var(--ink); }
+.halo .star.s { fill: var(--blue-deep); }
+.window.no-girl .girl, .window.no-girl .cast, .window.no-girl .vn { display: none; }
+.window.no-girl .halo { display: block; }
+/* 拱窗边上的三颗四角星 */
+.spark { position: absolute; width: 14px; height: 14px; background: var(--blue-deep); opacity: 0;
+         clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); }
+.spark.s1 { left: -8%; top: 22%; }
+.spark.s2 { right: -4%; top: 6%; width: 20px; height: 20px; background: var(--ink); }
+.spark.s3 { right: -10%; top: 44%; width: 10px; height: 10px; }
+/* 点她一下：出一条视觉小说式的台词框。压在小腿那一截上——动作和表情都在上半身，别挡着 */
+.vn { position: absolute; right: 0; bottom: 13%; max-width: 156px; width: max-content; padding: 12px 12px 9px; border-radius: 3px;
+      background: var(--navy); color: #fff; font-size: 12.5px; line-height: 1.55; letter-spacing: .04em; text-align: left;
+      opacity: 0; transform: translateY(8px); transition: opacity .25s, transform .3s var(--ease); pointer-events: none; }
+.vn.on { opacity: 1; transform: none; pointer-events: auto; cursor: pointer; }
+.vn-name { position: absolute; left: 10px; top: -10px; padding: 0 8px; background: var(--fog); color: var(--navy); font-size: 11px; font-weight: 600; line-height: 19px; letter-spacing: .1em; }
+.vn-line::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 5px; background: var(--fog); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+/* 还没人点过她的时候：台词框右下角挂一个「点一下」的小签，一个小鼠标指针在上面一下一下地点，点过一次就不再出现 */
+.vn-tip, .vn-tap { display: none; }
+.vn.on .vn-tip { display: block; position: absolute; right: 24px; bottom: -10px; padding: 0 8px; background: var(--gold); color: var(--navy); font-size: 11px; font-weight: 600; line-height: 19px; letter-spacing: .12em; }
+.vn.on .vn-tap { display: block; position: absolute; right: -2px; bottom: -26px; width: 25px; height: 30px; overflow: visible; pointer-events: none; }
+.vn-tap .cur { fill: #fff; stroke: var(--navy); stroke-width: 1.5; stroke-linejoin: round; }
+.vn-tap .rip { fill: none; stroke: var(--gold); stroke-width: 2; opacity: 0; }
+.window.tapped .vn-tip, .window.tapped .vn-tap { display: none; }
+/* 整个人离地的动作（跳、飘）：一串「加高画框」的整框图（下面 1400 就是站姿画框，上面多 320 给跳到最高时的头和手；离地多高烤在图里），
+   两张 <img> 轮流换着放，这时把站着的那层藏起来 */
+.act { position: absolute; left: 0; top: -22.857%; width: 100%; height: 122.857%; max-width: none; opacity: 0; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.act.std { top: 0; height: 100%; }
+.act.on { opacity: 1; }
+.window:not(.acting) .act { display: none; }
+.window.acting .cast-in { visibility: hidden; }
+
+/* ---------- 能查什么：一条稍微斜着的藏青条幅，字一直往左走 ---------- */
+.band { margin: 20px 0 0 calc(50% - 50vw); width: 100vw; overflow: hidden; background: var(--ink); color: var(--on-ink);
+        transform: rotate(-1.1deg) scaleX(1.03); font-size: 13px; letter-spacing: .14em; line-height: 1; }
+.band-run { display: flex; width: max-content; }
+.band-set { display: flex; align-items: center; gap: 20px; padding: 11px 20px 11px 0; white-space: nowrap; }
+.band-set b { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.band-set b::before { content: ""; width: 8px; height: 8px; background: var(--c); }
+.band-set em { font-style: normal; opacity: .72; }
+.band-set i { width: 11px; height: 11px; background: var(--blue); clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); }
+.t-mai { --c: var(--mai); } .t-chu { --c: var(--chu); } .t-geki { --c: var(--geki); } .t-sdvx { --c: var(--sdvx); }
+
+/* ---------- 两张通行证 ---------- */
+.pick { margin: 44px 0 26px; font-family: var(--serif); font-weight: 400; font-size: 17px; letter-spacing: .2em; display: flex; align-items: center; gap: 10px; }
+.pick::before { content: ""; flex: none; width: 13px; height: 13px; background: var(--blue-deep); clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); }
+.doors { display: grid; grid-template-columns: 1fr; gap: 34px; }
+.pass {
+  position: relative; background: var(--card); border: 1.5px solid var(--ink); border-radius: 6px;
+  padding: 26px 22px 20px; display: flex; flex-direction: column; gap: 16px;
+  transform: perspective(900px) rotateX(calc(var(--ty, 0) * -3deg)) rotateY(calc(var(--tx, 0) * 4deg)); transition: transform .4s var(--ease);
+}
+.bow { position: absolute; left: 20px; top: -16px; transform-origin: 50% 55%; }
+.bow-wing { fill: var(--ink); }
+.bow-gem { fill: var(--blue); stroke: var(--card); stroke-width: 1.2; }
+.pass-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.pass-title { margin: 0; font-family: var(--serif); font-weight: 500; font-size: 26px; letter-spacing: .14em; }
+.pass-host { font-family: var(--mono); font-size: 12px; color: var(--mute); }
+.pass-desc { margin: 0; font-size: 14px; line-height: 1.8; color: var(--mute); }
+.pass-grid { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+.pass-grid div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pass-grid dt { font-size: 12px; letter-spacing: .12em; color: var(--mute); }
+.pass-grid dd { margin: 0; font-size: 15px; }
+.pass-cut { position: relative; height: 0; margin: auto -22px 0; border-top: 1.5px dashed var(--line); }
+.pass-cut::before, .pass-cut::after {
+  content: ""; position: absolute; top: -8px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--bg); border: 1.5px solid var(--ink);
+}
+.pass-cut::before { left: -8.5px; clip-path: inset(0 0 0 calc(50% - 1.5px)); }
+.pass-cut::after { right: -8.5px; clip-path: inset(0 calc(50% - 1.5px) 0 0); }
+.go {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px;
+  background: var(--ink); color: var(--on-ink); border-radius: 4px; text-decoration: none; font-weight: 600; letter-spacing: .1em;
+  transition: transform .16s var(--ease); position: relative; overflow: hidden;
+}
+.go::after { content: ""; position: absolute; top: 0; bottom: 0; left: -40%; width: 30%; transform: skewX(-20deg);
+             background: linear-gradient(90deg, transparent, rgba(143, 178, 217, .45), transparent); }
+.go .arrow { transition: transform .2s var(--ease); }
+.go:hover .arrow { transform: translateX(5px); }
+.go:active { transform: scale(.98); }
+.pass-note { margin: -6px 0 0; font-size: 13px; line-height: 1.7; color: var(--mute); }
+
+/* 绑定通行证里的四个游戏：实心色条 */
+.plays { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.plays li { border-top: 3px solid var(--c); padding-top: 7px; font-size: 13px; line-height: 1.35; }
+.plays small { display: block; font-family: var(--mono); font-size: 11px; color: var(--mute); }
+
+/* 传分通行证里的两扇小门：各用自己游戏的样子 */
+.gates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.gate { position: relative; min-height: 76px; padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 1px; text-decoration: none; overflow: hidden;
+        transition: transform .16s var(--ease); }
+.gate:hover { transform: translateY(-3px); }
+.gate:active { transform: scale(.97); }
+.gate .dn { font-size: 20px; font-weight: 800; line-height: 1.15; }
+.gate .ds { margin-top: auto; font-size: 11px; letter-spacing: .12em; }
+.gate-sdvx { color: #f2f5f7; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+  background:
+    linear-gradient(115deg, transparent 58%, rgba(59, 240, 160, .45) 58.4%, transparent 59.2%),
+    linear-gradient(65deg, transparent 78%, rgba(59, 240, 160, .25) 78.4%, transparent 79.2%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .04) 0 1px, transparent 1px 20px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .04) 0 1px, transparent 1px 20px), #101317; }
+.gate-sdvx .dn { letter-spacing: -.01em; text-shadow: 0 0 16px rgba(255, 255, 255, .3); }
+.gate-sdvx .ds { color: #3bf0a0; }
+.gate-geki { border-radius: 16px; color: #2b2140; background: radial-gradient(120% 90% at 100% 0, #fff 0, transparent 55%), linear-gradient(160deg, #ffd3e2, #ffeaf1); }
+.gate-geki .dn { font-family: var(--serif); font-weight: 500; letter-spacing: .08em; }
+.gate-geki .ds { color: #c93d79; }
+
+/* ---------- QQ 指令：左边一条双线串起来，末尾一个雾蓝结 ---------- */
+.say { display: grid; grid-template-columns: 1fr; gap: 0 56px; }
+.say-lead { margin: -12px 0 18px; max-width: 26em; font-size: 14px; line-height: 1.8; color: var(--mute); }
+.thread { list-style: none; margin: 0; padding: 0 0 30px 30px; position: relative; }
+.thread::before { content: ""; position: absolute; left: 6px; top: 6px; bottom: 12px; width: 7px; border-left: 1.5px solid var(--ink); border-right: 1.5px solid var(--ink); }
+.thread::after { content: ""; position: absolute; left: 3px; bottom: 0; width: 13px; height: 13px; background: var(--blue); border: 1.5px solid var(--ink); transform: rotate(45deg); }
+.thread li { position: relative; padding: 13px 0; border-bottom: 1px solid var(--hair); display: grid; grid-template-columns: 1fr; gap: 6px 20px; align-items: center; }
+.thread li:last-child { border-bottom: 0; }
+.thread li::before { content: ""; position: absolute; left: -25.5px; top: 21px; width: 10px; height: 10px; border-radius: 50%; background: var(--card); border: 1.5px solid var(--ink); }
+.thread p { margin: 0; font-size: 14px; line-height: 1.7; color: var(--mute); }
+.cmd { justify-self: start; display: inline-flex; align-items: center; gap: 10px; border: 0; border-radius: 3px; padding: 6px 10px;
+       background: var(--mist); font-family: var(--mono); font-size: 15px; transition: background .16s, color .16s, transform .16s var(--ease); }
+.cmd::after { content: "复制"; font-family: var(--sans); font-size: 11px; letter-spacing: .12em; color: var(--mute); border-left: 1px solid var(--line); padding-left: 9px; }
+.cmd:hover { background: var(--ink); color: var(--on-ink); }
+.cmd:hover::after { color: var(--on-ink); border-left-color: var(--mute); }
+.cmd:active { transform: scale(.96); }
+.toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); max-width: calc(100% - 32px); padding: 9px 16px; border-radius: 4px;
+         background: var(--ink); color: var(--on-ink); font-size: 14px; text-align: center; z-index: 5; }
+.toast:empty { display: none; }
+
+/* ---------- 页脚线上探头的看板娘（图取不到就整块不要） ---------- */
+.peek { position: relative; height: 128px; margin: 14px 0 -44px; overflow: hidden; display: flex; align-items: flex-end; }
+.peek-say { margin: 0 0 16px; font-family: var(--serif); font-size: 15px; letter-spacing: .18em; color: var(--mute); }
+.peek-girl { position: absolute; right: 0; top: 4px; width: 188px; height: auto; user-select: none; pointer-events: none; }
+.no-yume .peek { display: none; }
+
+/* ---------- 页脚 ---------- */
+.foot { position: relative; margin-top: 44px; padding-top: 14px; border-top: 1.5px solid var(--ink); font-size: 12px; line-height: 1.9; color: var(--mute); }
+.whale { position: absolute; top: -18px; left: 12%; overflow: visible; }
+.w-body { fill: var(--blue); } .w-belly { fill: var(--card); } .w-eye { fill: var(--navy); }
+.w-spout { fill: none; stroke: var(--blue-deep); stroke-width: 1.2; stroke-linecap: round; }
+.replay { margin-left: 10px; padding: 0; border: 0; background: none; color: var(--mute); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.replay:hover { color: var(--ink); }
+.foot p { margin: 0; }
+.foot a { color: var(--mute); }
+.foot a:hover { color: var(--ink); }
+
+/* ---------- 宽屏 ---------- */
+@media (min-width: 720px) {
+  :root { --gut: 32px; }
+  .page { padding-top: 36px; }
+  .stage-text { padding: 40px 0 44px; }
+  .hello-sub { font-size: 15px; margin-top: 24px; }
+  .window { width: 300px; height: 640px; margin-right: 12px; }
+  .arch { width: 88%; }
+  .vn { right: -6px; bottom: 15%; max-width: 264px; font-size: 13.5px; padding: 14px 14px 11px; }
+  .peek { height: 150px; }
+  .peek-girl { width: 220px; right: 12px; }
+  .band { font-size: 14px; }
+  .doors { grid-template-columns: 1fr 1fr; gap: 24px; }
+  .pass { padding: 30px 26px 24px; }
+  .pass-cut { margin-left: -26px; margin-right: -26px; }
+  .bow { left: 24px; }
+  .say { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
+  .say .pick { margin-bottom: 26px; }
+  .say-lead { margin-bottom: 0; }
+  .thread { margin-top: 38px; }
+  .thread li { grid-template-columns: 148px 1fr; }
+}
+
+/* ================= 动效 ================= */
+@keyframes draw { from { transform: scaleX(0); } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes float { 50% { transform: translateY(-7px); } }
+@keyframes twinkle { 0%, 100% { opacity: 1; transform: scale(1) rotate(0); } 50% { opacity: .2; transform: scale(.6) rotate(45deg); } }
+@keyframes arch-up { from { opacity: 0; transform: translate(-50%, 34px) scaleY(.86); } }
+@keyframes girl-up { from { opacity: 0; transform: translateY(7%); } }
+/* 跳：整张图走一条弧线，不压不扁 */
+@keyframes act-bob { 50% { transform: translateY(-1.5%); } }
+@keyframes vn-next { 50% { transform: translateY(3px); } }
+@keyframes tap-cur { from, to { transform: translate(8px, 9px); } 34% { transform: translate(0, 0); } 43% { transform: translate(0, 0) scale(.8); } 54% { transform: translate(0, 0); } 70% { transform: translate(0, 0); } }
+@keyframes tap-rip { from, 42% { opacity: 0; transform: scale(.3); } 44% { opacity: 1; transform: scale(.3); } 78%, to { opacity: 0; transform: scale(2); } }
+@keyframes vn-press { 43% { transform: none; } 48% { transform: translateY(1.5px); } 58% { transform: none; } }
+@keyframes ch-up { from { opacity: 0; transform: translateY(115%) rotate(7deg); } }
+@keyframes band-in { from { transform: rotate(-1.1deg) scaleX(0); } }
+@keyframes marquee { to { transform: translateX(var(--w, -50%)); } }
+@keyframes shine { to { left: 120%; } }
+@keyframes bow-pop { from { transform: scale(0) rotate(-40deg); } 60% { transform: scale(1.25) rotate(8deg); } }
+@keyframes bow-wig { 25% { transform: rotate(-9deg) scale(1.08); } 55% { transform: rotate(7deg); } 80% { transform: rotate(-3deg); } }
+@keyframes issue { from { opacity: .2; clip-path: inset(-22px -6px 100% -6px); } to { opacity: 1; clip-path: inset(-22px -6px -6px -6px); } }
+@keyframes star-in { from { transform: scale(0) rotate(-180deg); } }
+@keyframes track-in { from { opacity: 0; letter-spacing: .7em; } }
+@keyframes line-down { from { transform: scaleY(0); } }
+@keyframes dot-pop { from { transform: scale(0); } 60% { transform: scale(1.5); } }
+@keyframes knot-pop { from { transform: rotate(45deg) scale(0); } 60% { transform: rotate(225deg) scale(1.4); } to { transform: rotate(405deg) scale(1); } }
+@keyframes slide-l { from { opacity: 0; transform: translateX(16px); } }
+@keyframes peek-up { from { transform: translateY(105%); } 70% { transform: translateY(-5%); } }
+@keyframes swim { from { left: 100%; } to { left: -40px; } }
+@keyframes bob { 50% { transform: translateY(-3px) rotate(-4deg); } }
+@keyframes spout { 0%, 70%, 100% { opacity: 0; } 78%, 92% { opacity: 1; } }
+@keyframes sky-fall { from { transform: translateY(-12vh) rotate(var(--r0, 0deg)); } to { transform: translateY(112vh) rotate(var(--r1, 90deg)); } }
+@keyframes tap-ring { from { opacity: .9; transform: scale(.25); } to { opacity: 0; transform: scale(1.7); } }
+@keyframes tap-spark { from { opacity: 1; transform: rotate(var(--a)) translateY(-8px) scale(1); } to { opacity: 0; transform: rotate(var(--a)) translateY(-38px) scale(.3); } }
+@keyframes judge-up { from { opacity: 0; transform: translate(-50%, -60%) scale(1.5); } 22% { opacity: 1; transform: translate(-50%, -100%) scale(1); } 75% { opacity: 1; } to { opacity: 0; transform: translate(-50%, -190%) scale(1); } }
+
+/* ---------- 顶上一条「曲子进度」：页面滚到哪了 ---------- */
+.prog { display: none; }
+.fx .prog { display: block; position: fixed; left: 0; right: 0; top: 0; height: 3px; z-index: 6; pointer-events: none; }
+.prog i { display: block; height: 100%; background: var(--ink); transform-origin: left center; transform: scaleX(var(--sp, 0)); }
+.prog::after { content: ""; position: absolute; top: -3px; opacity: calc(var(--sp, 0) * 40); left: calc(var(--sp, 0) * 100%); width: 9px; height: 9px; margin-left: -5px; background: var(--blue); border: 1.5px solid var(--ink); transform: rotate(45deg); }
+
+/* ---------- 背景：各游戏的音符剪影慢慢往下落（脚本生成；形状在 index.html 的 <svg class="defs"> 里，照各游戏 wiki 的描述画的通用形状） ----------
+   舞萌：SLIDE 的星星 / HOLD / TOUCH；中二：AIR / TAP；
+   音击：BELL（里面有个 ♪ 的圆珠，不是铃铛）/ SIDE 侧键；SDVX：FX 宽条 / BT 短条 / 直角的旋钮线。只留一眼认得出的。
+   颜色：各带一点自己游戏的主题色，和雾蓝调在一起，不抢正文。 */
+.defs { position: absolute; }
+.sky { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.page { position: relative; z-index: 1; }
+.sky svg { position: absolute; top: 0; left: var(--x); width: var(--s); height: var(--s); opacity: var(--o); color: var(--blue); animation: sky-fall var(--d) linear var(--dl) infinite; }
+.sky .g-mai { color: color-mix(in srgb, var(--mai) 55%, var(--blue)); }
+.sky .g-chu { color: color-mix(in srgb, var(--chu) 60%, var(--blue)); }
+.sky .g-geki { color: color-mix(in srgb, var(--geki) 55%, var(--blue)); }
+.sky .g-sdvx { color: color-mix(in srgb, var(--sdvx) 55%, var(--blue)); }
+
+/* ---------- 点哪里哪里出一圈「打击」 ---------- */
+.tap { position: fixed; left: var(--x); top: var(--y); width: 0; height: 0; z-index: 8; pointer-events: none; }
+.tap::before { content: ""; position: absolute; left: -22px; top: -22px; width: 44px; height: 44px; border: 2px solid var(--c); border-radius: 50%; animation: tap-ring .5s var(--ease) forwards; }
+.tap i { position: absolute; left: -3px; top: -3px; width: 6px; height: 6px; background: var(--c); clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); animation: tap-spark .5s var(--ease) forwards; }
+.judge { position: fixed; left: var(--x); top: var(--y); z-index: 8; pointer-events: none; white-space: nowrap; text-align: center;
+         font: italic 800 14px/1.1 var(--sans); letter-spacing: .12em; color: var(--c);
+         text-shadow: 0 0 6px var(--bg), 0 0 6px var(--bg), 0 0 2px var(--bg); animation: judge-up .9s var(--ease) forwards; }
+.judge small { display: block; font-size: 10px; letter-spacing: .2em; color: var(--mute); }
+
+/* ---------- 页面自己的进场（等 --t0 之后开始） ---------- */
+.hello .ln { display: block; overflow: hidden; padding: .12em 0 .05em; margin: -.12em 0 -.05em; }
+.hello .ch { display: inline-block; }
+.fx header .rule { animation: draw .7s var(--ease) calc(var(--t0) + .05s) both; }
+.fx .bar { animation: fade .6s ease calc(var(--t0) + .1s) both; }
+.fx .hello .ch { animation: ch-up .75s var(--ease) calc(var(--t0) + .2s + var(--i) * 55ms) both; }
+.fx .hello-sub { animation: rise .7s var(--ease) calc(var(--t0) + .75s) both; }
+.fx .arch { animation: arch-up .7s var(--ease) calc(var(--t0) + .15s) both; }
+.fx .cast-in { animation: girl-up .7s var(--ease) calc(var(--t0) + .3s) both; }
+/* 放了开场：她是从开场那边飞过来的，主页上这个先藏着，等那边落定（.op-land）再接上 */
+.fx.op-play .cast-in { animation: none; visibility: hidden; }
+.fx.op-play.op-land .cast-in { visibility: visible; }
+.fx.op-play.op-bye .cast-in { visibility: visible; animation: girl-up .6s var(--ease) both; }
+.fx .window.live .cast-in { animation: none; visibility: visible; }
+.fx .window.acting .cast-in { visibility: hidden; }
+.fx .window.act-float .act { animation: act-bob 3.6s ease-in-out .4s infinite; }
+.fx .vn.end .vn-line::after { animation: vn-next .9s ease-in-out infinite; }
+.fx .vn-tap .cur { transform-origin: 3px 2px; animation: tap-cur 1.7s var(--ease) infinite; }
+.fx .vn-tap .rip { transform-origin: 3px 2px; animation: tap-rip 1.7s linear infinite; }
+.fx .window:not(.tapped) .vn.on { animation: vn-press 1.7s linear infinite; }
+.fx .spark { opacity: 1; animation: star-in .6s var(--pop) calc(var(--t0) + 1s) both, twinkle 3.4s ease-in-out calc(var(--t0) + 1.6s) infinite; }
+.fx .spark.s2 { animation-delay: calc(var(--t0) + 1.15s), calc(var(--t0) + 2.4s); animation-duration: .6s, 4.6s; }
+.fx .spark.s3 { animation-delay: calc(var(--t0) + 1.3s), calc(var(--t0) + 2s); animation-duration: .6s, 2.8s; }
+.fx .halo { animation: float 6s ease-in-out infinite; }
+.fx .band { animation: band-in .8s var(--io) calc(var(--t0) + .7s) both; transform-origin: left center; }
+.fx .band-run { animation: marquee var(--dur, 28s) linear infinite; }
+.fx .band:hover .band-run { animation-play-state: paused; }
+
+/* ---------- 滚到了才演的（脚本给 .fx-in 加 .in） ---------- */
+/* 没进视野：先藏着（:not(.in)）。进了视野：演一遍（.in:not(.done)）。演完脚本加 .done，之后悬停之类的小动作不会把进场重放一遍。 */
+.fx .pick.fx-in:not(.in) { opacity: 0; }
+.fx .pick.fx-in.in:not(.done) { animation: track-in .8s var(--ease) both; }
+.fx .pick.fx-in.in:not(.done)::before { animation: star-in .7s var(--pop) .15s both; }
+.fx .pass.fx-in:not(.in) { opacity: 0; }
+.fx .pass.fx-in.in:not(.done) { animation: issue .85s var(--io) both; }          /* 像票从出票口吐出来 */
+.fx .pass + .pass.fx-in.in:not(.done) { animation-delay: .14s; }
+.fx .pass.fx-in.in:not(.done) .bow { animation: bow-pop .55s var(--ease) .65s both; }
+.fx .pass + .pass.fx-in.in:not(.done) .bow { animation-delay: .79s; }
+.fx .pass.done:hover .bow { animation: bow-wig .6s var(--ease); }
+.fx .go:hover::after { animation: shine .7s var(--ease); }
+.fx .thread.fx-in::before { transform-origin: top center; transition: transform 1.1s var(--io); }
+.fx .thread.fx-in:not(.in)::before { transform: scaleY(0); }
+.fx .thread.fx-in:not(.in)::after { transform: rotate(45deg) scale(0); }
+.fx .thread.fx-in.in:not(.done)::after { animation: knot-pop .7s var(--ease) 1s both; }
+.fx .thread.fx-in:not(.in) li { opacity: 0; }
+.fx .thread.fx-in.in:not(.done) li { animation: slide-l .55s var(--ease) calc(.12s + var(--n) * .16s) both; }
+.fx .thread.fx-in.in:not(.done) li::before { animation: dot-pop .45s var(--ease) calc(.2s + var(--n) * .16s) both; }
+.thread li:nth-child(1) { --n: 0; } .thread li:nth-child(2) { --n: 1; } .thread li:nth-child(3) { --n: 2; } .thread li:nth-child(4) { --n: 3; } .thread li:nth-child(5) { --n: 4; }
+.fx .peek.fx-in:not(.in) .peek-girl { transform: translateY(105%); }
+.fx .peek.fx-in.in:not(.done) .peek-girl { animation: peek-up .8s var(--ease) .2s both; }
+.fx .peek.fx-in:not(.in) .peek-say { opacity: 0; }
+.fx .peek.fx-in.in:not(.done) .peek-say { animation: track-in .9s var(--ease) .7s both; }
+.fx .whale { animation: swim 52s linear infinite, bob 2.6s ease-in-out infinite; }
+.fx .w-spout { animation: spout 5.2s ease-in-out infinite; }
+
+/* ================= 开场 =================
+   两套分镜，脚本随机给 <html> 挂 .op-a（跳出来）或 .op-b（飘起来）。时间全写在这里的 animation-delay 里；
+   什么时候收场由脚本定（app.js 的 OPS[..].ms），收场 = 给 <html> 加 .op-out：背景自己撤走、字淡掉、她飞去主页的站位。
+   开场还在演的时候，主页自己的进场动画全部停在第一帧等着，.op-out 一加才开始——所以两边不会对不上。 */
+.op { display: none; }
+.op-play:not(.op-out):not(.op-bye) .page *, .op-play:not(.op-out):not(.op-bye) .page *::before, .op-play:not(.op-out):not(.op-bye) .page *::after { animation-play-state: paused !important; }
+.op-play .op { display: block; position: fixed; inset: 0; z-index: 20; overflow: hidden; cursor: pointer; --j: 69vh; --fs: clamp(40px, 13vw, 76px); transition: opacity .28s linear; }
+.op-play.op-a .op { background: var(--bg); }
+.op-play.op-out .op { background: transparent; pointer-events: none; }
+.op-play.op-bye .op { opacity: 0; pointer-events: none; }                       /* 点了跳过：整层淡掉 */
+.op-play.op-gone .op { display: none; }
+/* 图还没到：整场先停在第一帧等一下（最多等 1.5 秒） */
+.op-hold *, .op-hold *::before, .op-hold *::after { animation-play-state: paused !important; }
+/* 收场时统一淡掉的三组：边角装饰、字、她身后的道具 */
+.op-deco, .op-words, .op-prop { position: absolute; inset: 0; transition: opacity .26s linear; }
+.op-out .op-deco, .op-out .op-words, .op-out .op-prop { opacity: 0; }
+.op-stage { position: absolute; left: 50%; top: 0; bottom: 0; width: min(88vw, 440px); transform: translateX(-50%); }
+/* 两帧来回跳的「手绘抖动」：只给道具用，人不抖 */
+@keyframes boil { from { transform: rotate(-1.3deg); } 50% { transform: rotate(1.1deg) translate(1px, -1px); } }
+@keyframes boil-b { from { transform: translate(-1px, 1px) rotate(.8deg); } 50% { transform: translate(1px, 0) rotate(-1deg); } }
+
+/* ---------- 她 ----------
+   开场里这一层的画框和主页上站姿的画框是同一个（634x1400，人物同一比例），所以收场时整个框飞过去、缩到主页那个框的位置就严丝合缝；
+   位移和缩放是脚本量出来写进 --dx --dy --ds 的。飞的路上原地换帧：第 1 帧（跳在半空 / 飘着）→ .op-k2 第 2 帧（下落 / 降落）→ .op-k3 第 3 帧（刚落地，头发还扬着）。 */
+.op-cast { position: absolute; left: 50%; aspect-ratio: 634 / 1400; transform: translateX(-50%); }
+.op-a .op-cast { top: 17.9vh; height: 79.5vh; }
+.op-b .op-cast { top: 16.2vh; height: 69vh; }
+.op-out .op-cast { transform: translate(calc(-50% + var(--dx, 0px)), var(--dy, 0px)) scale(var(--ds, 1)); }
+.op-a.op-out .op-cast { transition: transform 1.15s cubic-bezier(.5, 0, .2, 1), opacity .16s linear; }
+.op-b.op-out .op-cast { transition: transform 1.35s cubic-bezier(.45, 0, .25, 1), opacity .16s linear; }
+.op-c.op-out .op-cast { transition: transform .95s cubic-bezier(.5, 0, .2, 1), opacity .16s linear; }
+.op-land .op-cast { opacity: 0; }
+.op-hop, .op-fig { position: absolute; inset: 0; }
+/* 飞过去的路上再叠一个弧线：跳的那套先往上拱一下再落，飘的那套只是很轻地浮一下 */
+.op-a.op-out .op-hop { animation: hop-a 1.15s both; }
+.op-b.op-out .op-hop { animation: hop-b 1.35s both; }
+@keyframes hop-a { from { transform: none; animation-timing-function: cubic-bezier(.2, .7, .4, 1); } 42% { transform: translateY(-8%); animation-timing-function: cubic-bezier(.6, 0, .9, .6); } to { transform: none; } }
+@keyframes hop-b { from { transform: none; animation-timing-function: ease-out; } 50% { transform: translateY(-2.5%); animation-timing-function: ease-in-out; } to { transform: none; } }
+.op-out .op-fig { animation-play-state: paused !important; }
+/* 帧：两张 <img> 轮流换。默认是「加高画框」（整个人离地的那些帧），.std = 站姿画框（站着的差分） */
+.op-f, .op-shadow, .op-echo { position: absolute; left: 0; top: -22.857%; width: 100%; height: 122.857%; }
+.op-f { opacity: 0; max-width: none; transition: filter .3s linear; }
+.op-f.std { top: 0; height: 100%; }
+.op-f.on { opacity: 1; }
+.op-a .op-f { filter: drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff) drop-shadow(0 2px 0 #fff) drop-shadow(0 -2px 0 #fff); }   /* 贴纸一样的白边 */
+.op-a.op-out .op-f { filter: drop-shadow(0 0 0 transparent) drop-shadow(0 0 0 transparent) drop-shadow(0 0 0 transparent) drop-shadow(0 0 0 transparent); }
+.op-shadow, .op-echo { -webkit-mask: center / 100% 100% no-repeat; mask: center / 100% 100% no-repeat; }
+.op-a .op-shadow, .op-a .op-echo { -webkit-mask-image: url(/img/yume-a-jump.webp?v=304); mask-image: url(/img/yume-a-jump.webp?v=304); }
+.op-b .op-shadow, .op-b .op-echo { -webkit-mask-image: url(/img/yume-a-float.webp?v=304); mask-image: url(/img/yume-a-float.webp?v=304); }
+.op-out .op-shadow, .op-out .op-echo { opacity: 0 !important; animation: none !important; transition: none; }   /* 收场时她要换姿势了：第一帧轮廓的影子和残像立刻撤掉，不慢慢淡，免得人和影子对不上 */
+.no-yume .op-cast { display: none; }
+
+/* ================= a「跳出来」：亮的，拼贴 ================= */
+/* 底：六条宽窄不一的轨道，单数从上、双数从下落下来拼满屏；收场时原路抽走 */
+.op-bg { position: absolute; inset: 0; }
+.op-a .op-bg { display: grid; grid-template-columns: 1.15fr .7fr 1fr 1fr .7fr .45fr; }
+.op-a .op-bg i { animation: strip-d .52s var(--io) both; background-color: var(--bg); }
+.op-a .op-bg i:nth-child(even) { animation-name: strip-u; }
+.op-a .op-bg i:nth-child(2) { animation-delay: .05s; } .op-a .op-bg i:nth-child(3) { animation-delay: .1s; } .op-a .op-bg i:nth-child(4) { animation-delay: .15s; }
+.op-a .op-bg i:nth-child(5) { animation-delay: .2s; } .op-a .op-bg i:nth-child(6) { animation-delay: .25s; }
+.op-a .op-bg i:nth-child(1) { background-color: var(--mist); background-image: linear-gradient(-45deg, var(--mist) 25%, transparent 25%, transparent 75%, var(--hound) 75%),
+    linear-gradient(-45deg, var(--hound) 25%, transparent 25%, transparent 75%, var(--mist) 75%),
+    linear-gradient(45deg, var(--hound) 17%, transparent 17%, transparent 25%, var(--hound) 25%, var(--hound) 36%, transparent 36%, transparent 64%, var(--hound) 64%, var(--hound) 75%, transparent 75%, transparent 83%, var(--hound) 83%); background-size: 28px 28px; background-position: 0 0, 14px 14px, 14px 14px; }
+.op-a .op-bg i:nth-child(3) { border-left: 1px solid var(--hair); border-right: 1px solid var(--hair); }
+.op-a .op-bg i:nth-child(4) { background-color: var(--mist); }
+.op-a .op-bg i:nth-child(5) { border-right: 1px solid var(--hair); }
+.op-a .op-bg i:nth-child(6) { background-color: var(--navy); background-image: linear-gradient(-45deg, var(--navy) 25%, transparent 25%, transparent 75%, rgba(143, 178, 217, .16) 75%),
+    linear-gradient(-45deg, rgba(143, 178, 217, .16) 25%, transparent 25%, transparent 75%, var(--navy) 75%),
+    linear-gradient(45deg, rgba(143, 178, 217, .16) 17%, transparent 17%, transparent 25%, rgba(143, 178, 217, .16) 25%, rgba(143, 178, 217, .16) 36%, transparent 36%, transparent 64%, rgba(143, 178, 217, .16) 64%, rgba(143, 178, 217, .16) 75%, transparent 75%, transparent 83%, rgba(143, 178, 217, .16) 83%); background-size: 16px 16px; background-position: 0 0, 8px 8px, 8px 8px; }
+@keyframes strip-d { from { transform: translateY(-101%); } }
+@keyframes strip-u { from { transform: translateY(101%); } }
+@keyframes strip-out-u { to { transform: translateY(-101%); } }
+@keyframes strip-out-d { to { transform: translateY(101%); } }
+.op-out.op-a .op-bg i { animation: strip-out-u .56s var(--io) both; }
+.op-out.op-a .op-bg i:nth-child(even) { animation-name: strip-out-d; }
+.op-out.op-a .op-bg i:nth-child(2) { animation-delay: .04s; } .op-out.op-a .op-bg i:nth-child(3) { animation-delay: .08s; } .op-out.op-a .op-bg i:nth-child(4) { animation-delay: .12s; }
+.op-out.op-a .op-bg i:nth-child(5) { animation-delay: .16s; } .op-out.op-a .op-bg i:nth-child(6) { animation-delay: .2s; }
+/* 两边各一列空心的宋体大字，一列往上走、一列往下走 */
+.op-type { display: none; }
+.op-a .op-type { display: block; position: absolute; top: 0; width: 1em; font: 300 min(30vh, 46vw)/1.05 var(--serif); color: transparent; -webkit-text-stroke: 1px var(--line); writing-mode: vertical-rl; white-space: nowrap; }
+.op-type-l { left: -.3em; } .op-type-r { right: -.3em; }
+.op-type span { display: block; animation: fade .6s linear .3s both, type-up 16s linear infinite; }
+.op-type-r span { animation-name: fade, type-down; }
+@keyframes type-up { to { transform: translateY(-50%); } }
+@keyframes type-down { from { transform: translateY(-50%); } to { transform: translateY(0); } }
+/* 她身后：一张千鸟格的圆盘 + 一圈金线；两个雾蓝的剪影是她跳上来的残像，一帧一帧「啪、啪」地出现 */
+.op-disc { position: absolute; left: 50%; top: -12.5%; width: 92%; aspect-ratio: 1; margin-left: -46%; border-radius: 50%; background-color: var(--mist);
+           background-image: linear-gradient(-45deg, var(--mist) 25%, transparent 25%, transparent 75%, var(--hound) 75%),
+    linear-gradient(-45deg, var(--hound) 25%, transparent 25%, transparent 75%, var(--mist) 75%),
+    linear-gradient(45deg, var(--hound) 17%, transparent 17%, transparent 25%, var(--hound) 25%, var(--hound) 36%, transparent 36%, transparent 64%, var(--hound) 64%, var(--hound) 75%, transparent 75%, transparent 83%, var(--hound) 83%); background-size: 16px 16px; background-position: 0 0, 8px 8px, 8px 8px; }
+.op-a .op-disc { animation: disc-in .4s var(--pop) .92s both; }
+@keyframes disc-in { from { transform: scale(0); } }
+.op-halo { position: absolute; left: 50%; top: -12.5%; width: 92%; margin-left: -46%; overflow: visible; }
+.op-halo .ring { fill: none; stroke: var(--gold); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 100; transform-origin: 100px 100px; }
+.op-a .op-halo { transform: translate(3.5%, -2.5%); animation: boil-b .36s steps(1) infinite; }
+.op-a .op-halo .ring { animation: halo-draw .5s var(--io) 1s both; }
+@keyframes halo-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+.op-a .op-echo { background: var(--fog); opacity: 0; }
+.op-a .op-echo.e1 { animation: echo1 .36s steps(1) 1.12s infinite; }
+.op-a .op-echo.e2 { animation: echo2 .36s steps(1) 1.22s infinite; }
+@keyframes echo1 { from { opacity: .3; transform: translate(-31%, 17%) rotate(-10deg) scale(.86); } 50% { opacity: .3; transform: translate(-30%, 16.5%) rotate(-9deg) scale(.86); } to { opacity: .3; transform: translate(-31%, 17%) rotate(-10deg) scale(.86); } }
+@keyframes echo2 { from { opacity: .55; transform: translate(-15%, 8%) rotate(-5deg) scale(.93); } 50% { opacity: .55; transform: translate(-16%, 7.5%) rotate(-5.8deg) scale(.93); } to { opacity: .55; transform: translate(-15%, 8%) rotate(-5deg) scale(.93); } }
+.op-a .op-fig { animation: snap-in .24s var(--pop) 1.32s both, hang 1.5s ease-out 1.56s forwards; }
+@keyframes snap-in { from { opacity: 0; transform: translate(-7%, 9%) rotate(-4deg) scale(.95); } 30% { opacity: 1; } }
+@keyframes hang { to { transform: translateY(-1.6%); } }
+.op-a .op-shadow { background: var(--blue-deep); transform: translate(3%, 1.15%); }
+/* 她出现的那一下，身边炸开几颗四角星 */
+.op-pop { position: absolute; left: 50%; top: 11%; width: 0; height: 0; }
+.op-pop i { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; background: var(--c, var(--gold)); opacity: 0;
+            clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); }
+.op-a .op-pop i { animation: op-pop .7s var(--ease) 1.36s forwards; }
+.op-pop i:nth-child(1) { --a: -74deg; --c: var(--mai); } .op-pop i:nth-child(2) { --a: -38deg; } .op-pop i:nth-child(3) { --a: -8deg; --c: var(--geki); }
+.op-pop i:nth-child(4) { --a: 22deg; --c: var(--fog); } .op-pop i:nth-child(5) { --a: 52deg; --c: var(--chu); } .op-pop i:nth-child(6) { --a: 84deg; --c: var(--sdvx); } .op-pop i:nth-child(7) { --a: 118deg; }
+@keyframes op-pop { from { opacity: 1; transform: rotate(var(--a)) translateY(-12vh) scale(.6); } 60% { opacity: 1; } to { opacity: 0; transform: rotate(var(--a)) translateY(-31vh) scale(1.5) rotate(90deg); } }
+/* 四个音符：落到判定线上，各「打」出一个字 */
+.op-notes, .op-title { position: absolute; left: 0; right: 0; display: grid; grid-template-columns: repeat(4, 1fr); }
+.op-notes { top: 0; bottom: 0; }
+.op-b .op-notes { display: none; }
+.op .n { position: relative; }
+.op .n:nth-child(1), .op-title span:nth-child(1) { --d: .42s; }
+.op .n:nth-child(2), .op-title span:nth-child(2) { --d: .6s; }
+.op .n:nth-child(3), .op-title span:nth-child(3) { --d: .78s; }
+.op .n:nth-child(4), .op-title span:nth-child(4) { --d: .96s; }
+.op .n b { position: absolute; left: 50%; top: 0; width: 30px; height: 30px; animation: n-fall .42s cubic-bezier(.45, 0, 1, 1) var(--d) both, op-fade .01s linear calc(var(--d) + .42s) forwards; }
+.op .t-mai b { border: 5px solid var(--c); border-radius: 50%; }
+.op .t-chu b { width: 56px; height: 13px; border-radius: 3px; background: var(--c); }
+.op .t-geki b { border-radius: 50%; background: var(--c); }
+.op .t-sdvx b { background: var(--c); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+@keyframes n-fall { from { transform: translate(-50%, -14vh); } to { transform: translate(-50%, calc(var(--j) - 50%)); } }
+@keyframes op-fade { to { opacity: 0; } }
+.op .n::after { content: ""; position: absolute; left: 50%; top: var(--j); width: 40px; height: 40px; margin: -20px 0 0 -20px; border: 2.5px solid var(--c); border-radius: 50%; opacity: 0; animation: op-hit .55s var(--ease) calc(var(--d) + .42s) forwards; }
+@keyframes op-hit { from { opacity: .95; transform: scale(.4); } to { opacity: 0; transform: scale(2.8); } }
+.op .n em { position: absolute; left: 50%; top: calc(var(--j) - var(--fs) * .5 - 26px); font: italic 800 10px/1 var(--sans); letter-spacing: .12em; color: var(--c); opacity: 0; animation: op-judge .75s var(--ease) calc(var(--d) + .42s) forwards; }
+@keyframes op-judge { from { opacity: 1; transform: translate(-50%, 10px) scale(1.4); } 25% { opacity: 1; transform: translate(-50%, 0) scale(1); } to { opacity: 0; transform: translate(-50%, -12px); } }
+.op-title { top: var(--j); transform: translateY(-50%); text-align: center; font-family: var(--serif); font-weight: 300; font-size: var(--fs); line-height: 1.1; color: var(--ink);
+            text-shadow: 0 0 14px var(--bg), 0 0 14px var(--bg), 0 0 6px var(--bg); }
+.op-a .op-title span { animation: op-ch .55s var(--pop) calc(var(--d) + .42s) both; }
+@keyframes op-ch { from { opacity: 0; transform: scale(1.6); color: var(--c); } 55% { opacity: 1; color: var(--c); } to { transform: scale(1); color: var(--ink); } }
+.op-under { position: absolute; left: 0; right: 0; top: calc(var(--j) + var(--fs) * .5 + 14px); }
+.op-a .op-under .rule { margin: 0; animation: draw .5s var(--io) 1.5s both; }
+.op-sub { margin: 12px 0 0; text-align: center; font-size: 13px; letter-spacing: .32em; text-indent: .32em; color: var(--mute); }
+.op-a .op-sub { animation: fade .4s linear 1.7s both; }
+/* 四条边一笔一笔画出来的框 */
+.op-frame { position: absolute; inset: 12px; pointer-events: none; }
+.op-frame i { position: absolute; background: var(--ink); }
+.op-frame i:nth-child(1) { left: 0; right: 0; top: 0; height: 1.5px; transform-origin: left center; animation: draw .3s var(--io) .15s both; }
+.op-frame i:nth-child(2) { top: 0; bottom: 0; right: 0; width: 1.5px; transform-origin: center top; animation: line-down .3s var(--io) .4s both; }
+.op-frame i:nth-child(3) { left: 0; right: 0; bottom: 0; height: 1.5px; transform-origin: right center; animation: draw .3s var(--io) .65s both; }
+.op-frame i:nth-child(4) { top: 0; bottom: 0; left: 0; width: 1.5px; transform-origin: center bottom; animation: line-down .3s var(--io) .9s both; }
+.op-skip { position: absolute; left: 0; right: 0; bottom: max(26px, env(safe-area-inset-bottom)); text-align: center; font-size: 12px; letter-spacing: .2em; color: var(--mute); animation: fade .5s linear .9s both; }
+.op-stars, .op-verse, .op-street { display: none; }
+
+/* 横屏宽屏：她放大站在右边，站名在左边，不挤在中间一小条里 */
+@media (min-width: 900px) and (min-aspect-ratio: 5/4) {
+  .op-a .op-stage { width: min(90vw, 1000px); }
+  .op-a .op-cast { left: 71%; top: 23.8vh; height: 120vh; }
+  .op-a .op-words { right: 53%; }
+  .op-play.op-a .op { --j: 56vh; --fs: clamp(64px, 8.5vw, 112px); }
+  .op-b .op-cast { height: 73.6vh; top: 14.7vh; }
+}
+
+/* ================= b「飘起来」：夜里，安静 ================= */
+/* 底：藏青的千鸟格夜色。收场时收成一个圆，缩进她头顶（圆心是脚本量的 --ix --iy） */
+.op-b .op-bg { background-color: var(--navy); background-image: linear-gradient(-45deg, var(--navy) 25%, transparent 25%, transparent 75%, rgba(143, 178, 217, .1) 75%),
+    linear-gradient(-45deg, rgba(143, 178, 217, .1) 25%, transparent 25%, transparent 75%, var(--navy) 75%),
+    linear-gradient(45deg, rgba(143, 178, 217, .1) 17%, transparent 17%, transparent 25%, rgba(143, 178, 217, .1) 25%, rgba(143, 178, 217, .1) 36%, transparent 36%, transparent 64%, rgba(143, 178, 217, .1) 64%, rgba(143, 178, 217, .1) 75%, transparent 75%, transparent 83%, rgba(143, 178, 217, .1) 83%);
+               background-size: 28px 28px; background-position: 0 0, 14px 14px, 14px 14px; clip-path: circle(150vmax at var(--ix, 50%) var(--iy, 36%)); }
+.op-b .op-bg i { display: none; }
+.op-out.op-b .op-bg { clip-path: circle(0px at var(--ix, 50%) var(--iy, 36%)); transition: clip-path 1s cubic-bezier(.6, 0, .3, 1); }
+/* 月亮：千鸟格的圆 + 外面一圈慢慢画出来的金线 */
+.op-b .op-disc { top: -11%; width: 150%; margin-left: -75%; animation: moon-in .9s var(--ease) .25s both; }
+@keyframes moon-in { from { opacity: 0; transform: scale(.82); } }
+.op-b .op-halo { top: -11%; width: 150%; margin-left: -75%; transform: scale(1.07); }
+.op-b .op-halo .ring { stroke-width: 1; animation: halo-draw 1.3s var(--io) .2s both; transform: rotate(-90deg); }
+/* 她从下面慢慢飘上来，停住以后很轻地起伏；脚下拖两道越来越淡的影子 */
+.op-b .op-fig { animation: float-up 1.7s cubic-bezier(.16, .8, .3, 1) .45s both, op-bob 3.6s ease-in-out 2.15s infinite; }
+@keyframes float-up { from { opacity: 0; transform: translateY(36%); } 35% { opacity: 1; } }
+@keyframes op-bob { 50% { transform: translateY(-1.4%); } }
+.op-b .op-shadow { background: var(--fog); opacity: .55; transform: translate(2.6%, 1.4%); }
+.op-b .op-echo { background: var(--fog); opacity: 0; }
+.op-b .op-echo.e1 { animation: trail1 .9s var(--ease) 1.1s both; }
+.op-b .op-echo.e2 { animation: trail2 .9s var(--ease) .9s both; }
+@keyframes trail1 { from { opacity: 0; transform: translateY(21%); } to { opacity: .14; transform: translateY(10.6%); } }
+@keyframes trail2 { from { opacity: 0; transform: translateY(14%); } to { opacity: .26; transform: translateY(5.3%); } }
+/* 往上漂的四角星，两帧一闪 */
+.op-b .op-stars { display: block; position: absolute; inset: 0; animation: fade .8s linear both; }
+.op-stars i { position: absolute; left: var(--x); top: var(--y); width: var(--s); height: var(--s); background: var(--c, #fff);
+              clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); animation: star-drift var(--d) linear infinite, star-blink .5s steps(1) var(--dl) infinite; }
+@keyframes star-drift { to { translate: 0 -34vh; } }
+@keyframes star-blink { 50% { opacity: .35; scale: .7; } }
+.op-stars i:nth-child(1) { --x: 8%; --y: 30%; --s: 10px; --d: 9s; --dl: 0s; } .op-stars i:nth-child(2) { --x: 18%; --y: 72%; --s: 16px; --d: 7s; --dl: .2s; --c: var(--gold); }
+.op-stars i:nth-child(3) { --x: 27%; --y: 16%; --s: 7px; --d: 11s; --dl: .1s; --c: var(--fog); } .op-stars i:nth-child(4) { --x: 38%; --y: 90%; --s: 9px; --d: 6s; --dl: .3s; }
+.op-stars i:nth-child(5) { --x: 64%; --y: 86%; --s: 13px; --d: 8s; --dl: .15s; --c: var(--fog); } .op-stars i:nth-child(6) { --x: 74%; --y: 22%; --s: 8px; --d: 10s; --dl: .4s; --c: var(--gold); }
+.op-stars i:nth-child(7) { --x: 84%; --y: 58%; --s: 18px; --d: 7.5s; --dl: .05s; } .op-stars i:nth-child(8) { --x: 92%; --y: 34%; --s: 9px; --d: 9.5s; --dl: .25s; --c: var(--fog); }
+.op-stars i:nth-child(9) { --x: 4%; --y: 60%; --s: 12px; --d: 8.5s; --dl: .35s; --c: var(--fog); } .op-stars i:nth-child(10) { --x: 52%; --y: 6%; --s: 8px; --d: 12s; --dl: .45s; }
+.op-stars i:nth-child(11) { --x: 96%; --y: 80%; --s: 7px; --d: 6.5s; --dl: .1s; --c: var(--gold); } .op-stars i:nth-child(12) { --x: 13%; --y: 94%; --s: 8px; --d: 7s; --dl: .3s; }
+/* 右边一行竖排的字，一个一个亮起来 */
+.op-b .op-verse { display: block; position: absolute; right: 0; top: 13vh; margin: 0; writing-mode: vertical-rl; font: 300 16px/1 var(--serif); letter-spacing: .62em; color: #fff; }
+.op-verse::before { content: ""; position: absolute; right: -9px; top: 0; bottom: .5em; width: 1px; background: var(--gold); transform-origin: center top; animation: line-down 1.1s var(--io) .8s both; }
+.op-verse span { animation: fade .5s linear both; }
+.op-verse span:nth-child(1) { animation-delay: .9s; } .op-verse span:nth-child(2) { animation-delay: 1s; } .op-verse span:nth-child(3) { animation-delay: 1.1s; } .op-verse span:nth-child(4) { animation-delay: 1.2s; }
+.op-verse span:nth-child(5) { animation-delay: 1.3s; } .op-verse span:nth-child(6) { animation-delay: 1.4s; } .op-verse span:nth-child(7) { animation-delay: 1.5s; }
+/* 站名在最下面，一个字一个字升上来；底下一条金线像长按音符一样拉过去 */
+.op-b .op { --j: 80vh; --fs: clamp(34px, 11vw, 64px); }
+.op-b .op-title { color: #fff; text-shadow: 0 0 18px var(--navy), 0 0 18px var(--navy); }
+.op-b .op-title span { animation: verse-up .7s var(--ease) calc(1.2s + var(--d) * .7) both; }
+@keyframes verse-up { from { opacity: 0; transform: translateY(40%); } }
+.op-b .op-under .rule { margin: 0; gap: 0; animation: draw 1.1s linear 1.9s both; }
+.op-b .op-under .rule i { background: var(--gold); } .op-b .op-under .rule i:last-child { display: none; }
+.op-b .op-sub { color: var(--fog); animation: fade .5s linear 2.4s both; }
+.op-b .op-frame i { background: var(--gold); opacity: .55; }
+.op-b .op-skip { color: var(--fog); }
+
+/* ================= c「走过来」：白天，散步 ================= */
+/* 底：纸白。脚下一条千鸟格的地面带一直往后（往右）走，身后一行空心大字和几个游戏音符也往后飘——她在往左走。收场时整面往右卷走 */
+.op-play.op-c .op { --j: 85vh; --fs: clamp(34px, 11vw, 64px); }
+.op-c .op-bg { background: var(--bg); clip-path: inset(0 0 0 0); }
+.op-c .op-bg i { display: none; }
+.op-out.op-c .op-bg { clip-path: inset(0 0 0 100%); transition: clip-path .7s var(--io); }
+.op-c .op-cast { top: 9vh; height: 63vh; }
+.op-c .op-street { display: block; position: absolute; inset: 0; overflow: hidden; }
+.op-floor { position: absolute; left: -10%; right: -10%; top: calc(9vh + 63vh * .975); height: 34px; transform: rotate(-1.1deg); border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink);
+            background-color: var(--mist); background-image: linear-gradient(-45deg, var(--mist) 25%, transparent 25%, transparent 75%, var(--hound) 75%),
+    linear-gradient(-45deg, var(--hound) 25%, transparent 25%, transparent 75%, var(--mist) 75%),
+    linear-gradient(45deg, var(--hound) 17%, transparent 17%, transparent 25%, var(--hound) 25%, var(--hound) 36%, transparent 36%, transparent 64%, var(--hound) 64%, var(--hound) 75%, transparent 75%, transparent 83%, var(--hound) 83%);
+            background-size: 16px 16px; background-position: 0 0, 8px 8px, 8px 8px; animation: floor-in .5s var(--io) both, floor-run .9s linear infinite; }
+@keyframes floor-in { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes floor-run { to { background-position: 64px 0, 72px 8px, 72px 8px; } }
+.op-sign { position: absolute; left: 0; top: 20vh; white-space: nowrap; font: 300 min(24vh, 38vw)/1 var(--serif); letter-spacing: .1em; color: transparent; -webkit-text-stroke: 1px var(--line); }
+.op-sign span { display: inline-block; animation: fade .6s linear .2s both, sign-run 14s linear infinite; }
+@keyframes sign-run { from { transform: translateX(-50%); } to { transform: translateX(0); } }
+.op-street svg { position: absolute; left: -12vw; top: var(--y); width: var(--s); height: var(--s); color: var(--c); opacity: .75; animation: pass-by var(--d) linear var(--dl) infinite, boil .36s steps(1) infinite; }
+@keyframes pass-by { to { translate: 124vw 0; } }
+.op-street svg:nth-of-type(1) { --y: 12vh; --s: 44px; --c: var(--mai); --d: 3.4s; --dl: -.4s; }
+.op-street svg:nth-of-type(2) { --y: 34vh; --s: 36px; --c: var(--chu); --d: 4.4s; --dl: -2.2s; }
+.op-street svg:nth-of-type(3) { --y: 22vh; --s: 30px; --c: var(--geki); --d: 3.9s; --dl: -3s; }
+.op-street svg:nth-of-type(4) { --y: 50vh; --s: 40px; --c: var(--sdvx); --d: 3.1s; --dl: -1.3s; }
+.op-street svg:nth-of-type(5) { --y: 6vh; --s: 28px; --c: var(--blue-deep); --d: 5s; --dl: -4.1s; }
+.op-street svg:nth-of-type(6) { --y: 42vh; --s: 30px; --c: var(--blue-deep); --d: 4.7s; --dl: -.9s; }
+/* 她：从右边走进来（位置一步一步挪，和换帧同拍），转身站定，提裙礼；地上一块跟着脚的影子 */
+.op-c .op-fig { animation: walk-in 1.36s steps(8) .3s both; }
+@keyframes walk-in { from { transform: translateX(calc(50vw + 70%)); } to { transform: none; } }
+.op-c .op-f { opacity: 0; }
+.op-c .op-f.on { opacity: 1; }
+.op-c .op-shadow { display: none; }
+.op-c .op-prop { display: none; }
+.op-c .op-notes { display: none; }
+.op-c .op-title span { animation: verse-up .6s var(--ease) calc(2.1s + var(--d) * .6) both; }
+.op-c .op-under .rule { margin: 0; animation: draw .5s var(--io) 2.8s both; }
+.op-c .op-sub { animation: fade .4s linear 3s both; }
+@media (min-width: 900px) and (min-aspect-ratio: 5/4) {
+  .op-c .op-cast { top: 8vh; height: 70vh; }
+  .op-floor { top: calc(8vh + 70vh * .975); }
+}
+
+/* ---------- 幕布：雾蓝一层、藏青千鸟格一层，斜着扫过去。点站内链接离开时用 ---------- */
+.wipe { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
+.wipe i { position: absolute; inset: 0; clip-path: polygon(0 0, 0 0, -25% 100%, -25% 100%); }
+.wipe i:first-child { background: var(--fog); }
+.wipe i + i {
+  background-color: var(--navy);
+  background-image:
+    linear-gradient(-45deg, var(--navy) 25%, transparent 25%, transparent 75%, rgba(143, 178, 217, .13) 75%),
+    linear-gradient(-45deg, rgba(143, 178, 217, .13) 25%, transparent 25%, transparent 75%, var(--navy) 75%),
+    linear-gradient(45deg, rgba(143, 178, 217, .13) 17%, transparent 17%, transparent 25%, rgba(143, 178, 217, .13) 25%,
+      rgba(143, 178, 217, .13) 36%, transparent 36%, transparent 64%, rgba(143, 178, 217, .13) 64%,
+      rgba(143, 178, 217, .13) 75%, transparent 75%, transparent 83%, rgba(143, 178, 217, .13) 83%);
+  background-size: 28px 28px; background-position: 0 0, 14px 14px, 14px 14px;
+}
+/* 幕布盖满以后，中间的金色光环一笔画出来：画完右上角蹦出一颗四角星，外面荡开一圈，然后才跳转 */
+.wipe-halo { position: absolute; left: 50%; top: 50%; width: 168px; margin: -34px 0 0 -84px; overflow: visible; transform: rotate(-8deg); opacity: 0; }
+.wipe-halo .ring { fill: none; stroke: var(--gold); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; }
+.wipe-halo .rip { fill: none; stroke: var(--gold); stroke-width: 1.5; opacity: 0; transform-origin: 80px 32px; }
+.wipe-halo .star { fill: var(--gold); transform-origin: 138px 17px; opacity: 0; }
+.fx .wipe.go .wipe-halo { opacity: 1; }
+.fx .wipe.go .wipe-halo .ring { animation: halo-draw .36s var(--io) .22s both; }
+.fx .wipe.go .wipe-halo .star { opacity: 1; animation: star-in .3s var(--pop) .56s both; }
+.fx .wipe.go .wipe-halo .rip { animation: halo-rip .5s var(--ease) .56s both; }
+@keyframes halo-rip { from { opacity: .8; transform: scale(1); } to { opacity: 0; transform: scale(1.5); } }
+.wipe.back .wipe-halo { opacity: 0; transition: opacity .12s linear; }
+@keyframes wipe-in { to { clip-path: polygon(0 0, 125% 0, 100% 100%, -25% 100%); } }
+@keyframes wipe-out { from { clip-path: polygon(0 0, 125% 0, 100% 100%, -25% 100%); } to { clip-path: polygon(125% 0, 125% 0, 100% 100%, 100% 100%); } }
+.fx .wipe.go i:first-child { animation: wipe-in .32s var(--io) both; }
+.fx .wipe.go i + i { animation: wipe-in .32s var(--io) .07s both; }
+.fx .wipe.back i:first-child { animation: wipe-out .4s var(--io) .08s both; }
+.fx .wipe.back i + i { animation: wipe-out .4s var(--io) both; }
+
+/* ---------- 没开传分网站：只留绑定那一张 ---------- */
+.no-scores .pass-scores, .no-scores .nav-scores, .no-scores .li-scores { display: none; }
+@media (min-width: 720px) { .no-scores .doors { grid-template-columns: minmax(0, 520px); } }

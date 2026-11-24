@@ -148,6 +148,9 @@ def route(raw: str, *, last_game: str = "") -> Route | None:
         guess = cands[close[0]] if close else None
     if guess is not None:
         return Route(guess, after.strip(), "typo")
+    # 3a0. /名片、/名片 开、/名片 关、/名片 换链接 → 公开的成绩名片（v3.1.0）
+    if f in ("名片", "我的名片"):
+        return Route("core", ("名片 " + after.strip()).strip(), "bare")
     # 3a. /网页绑定 → 群友自助绑定链接
     if low in ("网页绑定", "绑定网页", "网页登录"):
         return Route("core", "网页绑定", "bare")

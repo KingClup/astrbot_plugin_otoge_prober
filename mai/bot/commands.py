@@ -66,6 +66,9 @@ class Reply:
     # 「可能是这几首」时，回 1 / 2 / 3 选哪首：每项是 (游戏, 指令参数) 或者一个 async 函数（→ Reply）。
     # main 的 guard 记 15 秒，同一个人回序号就照着跑
     picks: list = field(default_factory=list)
+    brand: bool = True        # 这张图底下要不要接「网站 + QQ 号」那一条（猜歌的图、谱面图、绑定说明图不接）
+    card: tuple | None = None  # 自己的 B50 图：(游戏, rating, 区服)，开了名片的人由 main 顺手存到名片上
+    theme: str = ""           # 页脚跟着哪种图长：mai / chu / geki / sdvx / help；空着 = 看底色自己挑
 
     def say(self, t: str) -> "Reply":
         self.texts.append(t)
@@ -85,6 +88,7 @@ class Ctx:
     name: str = ""          # 发消息时显示的名字（群里是群名片）
     nick: str = ""          # QQ 昵称（不是群名片）；取不到就是空
     images: list = field(default_factory=list)   # 这条消息里带的图片（url 或本地路径）
+    official: bool = False  # 从 QQ 官方机器人来的（v3.0.0）：uid 是 openid 不是 QQ 号。功能和个人号那边一样全开
 
 
 def split_args(args: list[str]) -> tuple[str | None, list[str]]:
@@ -390,6 +394,8 @@ class Commands:
     async def _bind_cn(self, ctx: Ctx, rest) -> Reply:
         """国服 = 水鱼查分器：用户名或 QQ，不涉及密码，群里也能绑。"""
         name = " ".join(rest).strip()
+        if not name and not str(ctx.uid).isdigit():      # QQ 官方机器人那边拿不到 QQ 号
+            return Reply().say("这边拿不到你的 QQ 号，带上水鱼用户名再发一次：/mai 绑定 国服 <水鱼用户名>")
         binding = {"username": name} if name else {"qq": ctx.uid}
         try:
             prof = await asyncio.wait_for(self.svc.verify("cn", binding), NET_TIMEOUT)
@@ -545,6 +551,8 @@ class Commands:
                         self._img_memo[uid] = (memo_key, img)
                 if img:
                     r = Reply(image=img)
+                    if uid == ctx.uid and not getattr(snap, "stale", False):
+                        r.card = ("mai", getattr(b, "total", None), REGION_NAMES.get(region, ""))
                     if note:
                         r.say(note)
                     return r

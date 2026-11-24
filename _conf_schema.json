@@ -253,6 +253,30 @@
     "default": 36199,
     "hint": "别用 6199：那是 AstrBot aiocqhttp 反向 WebSocket（NapCat）的端口；填了也会被自动改成 36199"
   },
+  "image_brand": {
+    "description": "成绩图、帮助图底下接一条「去哪找我」：二维码 + 网站地址，右边是 bot 的 QQ 号",
+    "type": "bool",
+    "default": true,
+    "hint": "图被转到别的群以后，看到的人知道去哪弄。网站地址用上面的 bind_web_url；猜歌的图、谱面图不接"
+  },
+  "brand_qq": {
+    "description": "页脚上写的 QQ 号（留空 = 自动用个人号那边自己的号）",
+    "type": "string",
+    "default": "",
+    "hint": "只接了 QQ 官方机器人、没有个人号的话，在这里填想让别人加的号；留空又认不到就只显示网站"
+  },
+  "ignore_other_bots": {
+    "description": "不理别的机器人发的消息（同群的 QQ 官方机器人、Q 群管家）：不当指令，也不交给聊天模型",
+    "type": "bool",
+    "default": true,
+    "hint": "按 QQ 号段认：3889 开头的 10 位号（开放平台的机器人）和 2854196 开头的。认不出来的把号码填到下面那一项"
+  },
+  "ignore_qq_list": {
+    "description": "另外不理这些 QQ 号发的消息（一行一个）",
+    "type": "list",
+    "default": [],
+    "hint": "比如别的没被自动认出来的机器人的 QQ 号"
+  },
   "bind_web_group": {
     "description": "群里发「/网页绑定」也给链接（@ 发消息的人，点开后要本人在 QQ 回网页上的确认码）",
     "type": "bool",
